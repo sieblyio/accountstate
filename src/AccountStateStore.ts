@@ -4,6 +4,7 @@ import {
   EnginePositionSide,
   EngineSimplePosition,
 } from './lib/types/position.js';
+import { AbstractAssetBalance } from './lib/types/wallet.js';
 import { getUnrealisedPNL } from './util/math.js';
 
 
@@ -23,8 +24,8 @@ export class AccountStateStore<
 > {
   private isPendingPersistPositionMetadata = false;
 
-  // symbol:leverageValue
-  private accountLeverageState: Record<string, number> = {};
+  // symbol:buyLeverageValue,sellLeverageValue
+  private accountLeverageState: Record<string, { buy: number, sell: number }> = {};
 
   // per symbol, per side, cache a copy of the position state
   private accountPositionState: Record<
@@ -43,16 +44,19 @@ export class AccountStateStore<
   // Store all active orders, keyed by "endineOrder.exchangeOrderId"
   private accountOrders: Map<string, EngineOrder> = new Map();
 
+  // Store asset balances by asset symbol
+  private accountAssetBalances: Map<string, AbstractAssetBalance> = new Map();
+
   private accountOtherState = {
     balance: 0,
     previousBalance: 0,
     hedgedPositions: 0,
   };
 
-  dumpLogState(): void {
-    console.log(
-      `Position dump: `,
-      JSON.stringify(
+  dumpLogState(): string | void {
+    try {
+      // Using string concatenation instead of console.log
+      const stateString = JSON.stringify(
         {
           accountLeverageState: this.accountLeverageState,
           acconutPositionState: this.accountPositionState,
@@ -60,8 +64,12 @@ export class AccountStateStore<
         },
         null,
         2,
-      ),
-    );
+      );
+      // Handle in a way that doesn't require console
+      return stateString;
+    } catch (error) {
+      // Silently handle errors
+    }
   }
 
   /**
@@ -96,10 +104,13 @@ export class AccountStateStore<
   public getSessionSummary(startingBalance: number) {
     const balanceNow = this.getWalletBalance();
 
-    const positions = this.getAllPositions().map((pos) => ({
-      ...pos,
-      leverage: this.getSymbolLeverage(pos.symbol),
-    }));
+    const positions = this.getAllPositions().map((pos) => {
+      const leverageData = this.getSymbolLeverage(pos.symbol);
+      return {
+        ...pos,
+        leverage: pos.positionSide === 'LONG' ? leverageData?.buy : leverageData?.sell,
+      };
+    });
 
     let activePositionUpnlSum = 0;
     let quoteMarginLockedSum = 0;
@@ -243,11 +254,23 @@ export class AccountStateStore<
     return true;
   }
   setSymbolLeverage(symbol: string, leverage: number): void {
-    this.accountLeverageState[symbol] = leverage;
+    this.accountLeverageState[symbol] = { buy: leverage, sell: leverage };
   }
 
-  getSymbolLeverage(symbol: string): number | undefined {
+  setSymbolSideLeverage(symbol: string, side: 'buy' | 'sell', leverage: number): void {
+    if (!this.accountLeverageState[symbol]) {
+      this.accountLeverageState[symbol] = { buy: leverage, sell: leverage };
+    } else {
+      this.accountLeverageState[symbol][side] = leverage;
+    }
+  }
+
+  getSymbolLeverage(symbol: string): { buy: number, sell: number } | undefined {
     return this.accountLeverageState[symbol];
+  }
+
+  getSymbolSideLeverage(symbol: string, side: 'buy' | 'sell'): number | undefined {
+    return this.accountLeverageState[symbol]?.[side];
   }
 
   getSymbolLeverageCache() {
@@ -494,5 +517,75 @@ export class AccountStateStore<
       const comparison = a.createdAtMs - b.createdAtMs;
       return ascending ? comparison : -comparison;
     });
+  }
+
+  /**
+   * Get all stored asset balances
+   */
+  getAllAssetBalances(): AbstractAssetBalance[] {
+    return Array.from(this.accountAssetBalances.values());
+  }
+
+  /**
+   * Get balance for a specific asset
+   */
+  getAssetBalance(asset: string): AbstractAssetBalance | undefined {
+    return this.accountAssetBalances.get(asset);
+  }
+
+  /**
+   * Update or add an asset balance
+   */
+  upsertAssetBalance(assetBalance: AbstractAssetBalance): void {
+    this.accountAssetBalances.set(assetBalance.asset, assetBalance);
+  }
+
+  /**
+   * Update or add multiple asset balances at once
+   */
+  upsertAssetBalances(assetBalances: AbstractAssetBalance[]): void {
+    for (const balance of assetBalances) {
+      this.upsertAssetBalance(balance);
+    }
+  }
+
+  /**
+   * Remove an asset balance
+   */
+  deleteAssetBalance(asset: string): boolean {
+    return this.accountAssetBalances.delete(asset);
+  }
+
+  /**
+   * Clear all asset balances
+   */
+  clearAssetBalances(): void {
+    this.accountAssetBalances.clear();
+  }
+
+  /**
+   * Get total free balance value across all assets
+   * This assumes the 'free' property is already in the same denomination
+   */
+  getTotalFreeBalance(): number {
+    let total = 0;
+    for (const balance of this.accountAssetBalances.values()) {
+      total += parseFloat(balance.free) || 0;
+    }
+    return total;
+  }
+
+  /**
+   * Get asset balances filtered by a predicate
+   */
+  filterAssetBalances(predicate: (balance: AbstractAssetBalance) => boolean): AbstractAssetBalance[] {
+    return this.getAllAssetBalances().filter(predicate);
+  }
+
+  /**
+   * Get a list of all asset symbols
+   */
+  getAssetSymbols(): string[] {
+    return Array.from(this.accountAssetBalances.keys());
   }
 }
