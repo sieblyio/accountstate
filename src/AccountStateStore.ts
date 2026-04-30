@@ -6,8 +6,6 @@ import {
 } from './lib/types/position.js';
 import { getUnrealisedPNL } from './util/math.js';
 
-
-
 /**
  * This abstraction layer is a state cache for account state (so we know what changed when an event comes in).
  *
@@ -355,21 +353,25 @@ export class AccountStateStore<
    * Get all active orders
    */
   getActiveOrders(): EngineOrder[] {
-    return this.getOrders().filter(order => order.status === 'NEW' || order.status === 'PARTIALLY_FILLED');
+    return this.getOrders().filter(
+      (order) => order.status === 'NEW' || order.status === 'PARTIALLY_FILLED',
+    );
   }
 
   /**
    * Get orders for a specific symbol
    */
   getOrdersForSymbol(symbol: string): EngineOrder[] {
-    return this.getOrders().filter(order => order.symbol === symbol);
+    return this.getOrders().filter((order) => order.symbol === symbol);
   }
 
   /**
    * Get orders for a specific symbol and side
    */
   getOrdersForSymbolSide(symbol: string, side: 'BUY' | 'SELL'): EngineOrder[] {
-    return this.getOrders().filter(order => order.symbol === symbol && order.orderSide === side);
+    return this.getOrders().filter(
+      (order) => order.symbol === symbol && order.orderSide === side,
+    );
   }
 
   /**
@@ -396,7 +398,7 @@ export class AccountStateStore<
   }
 
   /**
-   * Remove an order from tracking 
+   * Remove an order from tracking
    */
   deleteOrder(orderId: string): void {
     this.accountOrders.delete(orderId);
@@ -413,21 +415,21 @@ export class AccountStateStore<
    * Get orders by status
    */
   getOrdersByStatus(status: EngineOrder['status']): EngineOrder[] {
-    return this.getOrders().filter(order => order.status === status);
+    return this.getOrders().filter((order) => order.status === status);
   }
 
   /**
    * Get orders by type
    */
   getOrdersByType(orderType: EngineOrder['orderType']): EngineOrder[] {
-    return this.getOrders().filter(order => order.orderType === orderType);
+    return this.getOrders().filter((order) => order.orderType === orderType);
   }
 
   /**
    * Get all orders sorted by orderId
    * @param ascending - true for ascending order, false for descending
    */
-  getOrdersSortedById(ascending: boolean = true): EngineOrder[] {
+  getOrdersSortedById(ascending = true): EngineOrder[] {
     return this.getOrders().sort((a, b) => {
       const comparison = a.exchangeOrderId.localeCompare(b.exchangeOrderId);
       return ascending ? comparison : -comparison;
@@ -438,7 +440,7 @@ export class AccountStateStore<
    * Get all orders sorted by symbol
    * @param ascending - true for ascending order, false for descending
    */
-  getOrdersSortedBySymbol(ascending: boolean = true): EngineOrder[] {
+  getOrdersSortedBySymbol(ascending = true): EngineOrder[] {
     return this.getOrders().sort((a, b) => {
       const comparison = a.symbol.localeCompare(b.symbol);
       return ascending ? comparison : -comparison;
@@ -449,7 +451,7 @@ export class AccountStateStore<
    * Get all orders sorted by price
    * @param ascending - true for ascending order, false for descending
    */
-  getOrdersSortedByPrice(ascending: boolean = true): EngineOrder[] {
+  getOrdersSortedByPrice(ascending = true): EngineOrder[] {
     return this.getOrders().sort((a, b) => {
       const comparison = a.price - b.price;
       return ascending ? comparison : -comparison;
@@ -461,7 +463,10 @@ export class AccountStateStore<
    * @param symbol - The symbol to filter orders for
    * @param ascending - true for ascending order, false for descending
    */
-  getOrdersForSymbolSortedByPrice(symbol: string, ascending: boolean = true): EngineOrder[] {
+  getOrdersForSymbolSortedByPrice(
+    symbol: string,
+    ascending = true,
+  ): EngineOrder[] {
     return this.getOrdersForSymbol(symbol).sort((a, b) => {
       const comparison = a.price - b.price;
       return ascending ? comparison : -comparison;
@@ -475,9 +480,9 @@ export class AccountStateStore<
    * @param ascending - true for ascending order, false for descending
    */
   getOrdersForSymbolSideSortedByPrice(
-    symbol: string, 
+    symbol: string,
     side: 'BUY' | 'SELL',
-    ascending: boolean = true
+    ascending = true,
   ): EngineOrder[] {
     return this.getOrdersForSymbolSide(symbol, side).sort((a, b) => {
       const comparison = a.price - b.price;
@@ -489,7 +494,7 @@ export class AccountStateStore<
    * Get orders sorted by timestamp
    * @param ascending - true for ascending order (oldest first), false for descending (newest first)
    */
-  getOrdersSortedByTimestamp(ascending: boolean = true): EngineOrder[] {
+  getOrdersSortedByTimestamp(ascending = true): EngineOrder[] {
     return this.getOrders().sort((a, b) => {
       const comparison = a.createdAtMs - b.createdAtMs;
       return ascending ? comparison : -comparison;

@@ -62,7 +62,7 @@ export function calculateDepthForPositions(
   balanceAvailable: number,
   symbolLeverageCache: Record<string, number>,
   positions: EngineSimplePosition[] | undefined,
-  quoteBalanceAsset: string = 'USDT',
+  quoteBalanceAsset = 'USDT',
 ): PositionDepthState[] {
   if (!positions) {
     return [];
@@ -89,7 +89,7 @@ export function calulateDepthSummaryForAllPositions(
   balance: number,
   symbolLeverageCache: Record<string, number>,
   positions: EngineSimplePosition[] | undefined,
-  quoteBalanceAsset: string = 'USDT',
+  quoteBalanceAsset = 'USDT',
   leverageType: 'cross' | 'isolated',
 ): DepthSummary {
   const depthByPosition = calculateDepthForPositions(
@@ -130,7 +130,7 @@ export function getDepthPercentForAllPositions(
   positions: EngineSimplePosition[],
   walletBalance: number,
   symbolLeverageCache: Record<string, number>,
-  quoteBalanceAsset: string = 'USDT',
+  quoteBalanceAsset = 'USDT',
 ): number {
   const balanceUsageSummary = calulateDepthSummaryForAllPositions(
     walletBalance,
