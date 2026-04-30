@@ -84,8 +84,8 @@ export interface NormalizedOrder extends AccountScope {
   kind: NormalizedOrderKind;
   exchangeOrderId?: string;
   customClientOrderId?: string;
-  clientAlgoId?: string;
-  exchangeAlgoId?: string;
+  customTriggerOrderId?: string;
+  exchangeTriggerOrderId?: string;
   side: 'BUY' | 'SELL';
   type: string;
   status: NormalizedOrderStatus;
@@ -129,7 +129,7 @@ export interface NormalizedFill extends AccountScope {
   exchangeTradeId?: string;
   exchangeOrderId?: string;
   customClientOrderId?: string;
-  clientAlgoId?: string;
+  customTriggerOrderId?: string;
   side: 'BUY' | 'SELL';
   price: DecimalString;
   quantity: DecimalString;
@@ -300,15 +300,15 @@ export interface SyncRequest {
 export interface OrderIdentityFilter {
   exchangeOrderId?: string;
   customClientOrderId?: string;
-  clientAlgoId?: string;
-  exchangeAlgoId?: string;
+  customTriggerOrderId?: string;
+  exchangeTriggerOrderId?: string;
 }
 
 export type OrderIdentity =
   | (OrderIdentityFilter & { exchangeOrderId: string })
   | (OrderIdentityFilter & { customClientOrderId: string })
-  | (OrderIdentityFilter & { clientAlgoId: string })
-  | (OrderIdentityFilter & { exchangeAlgoId: string });
+  | (OrderIdentityFilter & { customTriggerOrderId: string })
+  | (OrderIdentityFilter & { exchangeTriggerOrderId: string });
 
 export type TerminalReason =
   | 'filled'

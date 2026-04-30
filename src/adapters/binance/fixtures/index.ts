@@ -72,14 +72,14 @@ export const binanceAccountStateFixtures = [
         },
         {
           kind: 'algo',
-          clientAlgoId: 'x-15PC4ZJyPM-U-L-L-T-01-L1-0',
+          customTriggerOrderId: 'x-15PC4ZJyPM-U-L-L-T-01-L1-0',
           type: 'TAKE_PROFIT',
           closePosition: false,
           reduceOnly: true,
         },
         {
           kind: 'algo',
-          clientAlgoId: 'x-15PC4ZJyPM-U-L-L-X-01-L1-0',
+          customTriggerOrderId: 'x-15PC4ZJyPM-U-L-L-X-01-L1-0',
           type: 'STOP_MARKET',
           closePosition: true,
           reduceOnly: true,
@@ -233,7 +233,7 @@ export const binanceAccountStateFixtures = [
         },
         {
           kind: 'algo',
-          clientAlgoId: 'x-15PC4ZJyPM-U-L-B-X-01-L1-0',
+          customTriggerOrderId: 'x-15PC4ZJyPM-U-L-B-X-01-L1-0',
           closePosition: true,
         },
       ],
@@ -387,8 +387,8 @@ export const binanceAccountStateFixtures = [
         {
           kind: 'algo',
           symbol: 'BRUSDT',
-          clientAlgoId: 'x-15PC4ZJyCPQmom2a88xERR',
-          exchangeAlgoId: '3000001400359919',
+          customTriggerOrderId: 'x-15PC4ZJyCPQmom2a88xERR',
+          exchangeTriggerOrderId: '3000001400359919',
           quantity: '0',
           triggerPrice: '0.08585',
           closePosition: true,

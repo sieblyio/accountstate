@@ -118,8 +118,8 @@ export function normalizeBinanceUsdmOpenAlgoOrder(
     ...scope,
     symbol: row.symbol,
     kind: 'algo',
-    exchangeAlgoId: String(row.algoId),
-    clientAlgoId: row.clientAlgoId,
+    exchangeTriggerOrderId: String(row.algoId),
+    customTriggerOrderId: row.clientAlgoId,
     side: row.side,
     type: row.orderType,
     status: normalizeBinanceAlgoStatus(row.algoStatus),
@@ -349,8 +349,8 @@ export function normalizeBinanceUsdmAlgoUpdate(
       createTerminalEvidenceFact(
         scope,
         {
-          clientAlgoId: algoOrder.clientAlgoId,
-          exchangeAlgoId: String(algoOrder.algoId),
+          customTriggerOrderId: algoOrder.clientAlgoId,
+          exchangeTriggerOrderId: String(algoOrder.algoId),
         },
         'triggered',
         event.transactionTime,
@@ -363,8 +363,8 @@ export function normalizeBinanceUsdmAlgoUpdate(
       createTerminalEvidenceFact(
         scope,
         {
-          clientAlgoId: algoOrder.clientAlgoId,
-          exchangeAlgoId: String(algoOrder.algoId),
+          customTriggerOrderId: algoOrder.clientAlgoId,
+          exchangeTriggerOrderId: String(algoOrder.algoId),
         },
         terminalReasonFromOrderStatus(status),
         event.transactionTime,
@@ -381,8 +381,8 @@ export function normalizeBinanceUsdmAlgoUpdate(
         symbol: algoOrder.symbol,
         kind: 'algo',
         exchangeOrderId: nonZeroString(algoOrder.orderId),
-        exchangeAlgoId: String(algoOrder.algoId),
-        clientAlgoId: algoOrder.clientAlgoId,
+        exchangeTriggerOrderId: String(algoOrder.algoId),
+        customTriggerOrderId: algoOrder.clientAlgoId,
         side: algoOrder.side,
         type: algoOrder.orderType,
         status,

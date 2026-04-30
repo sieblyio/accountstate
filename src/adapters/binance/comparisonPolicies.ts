@@ -123,8 +123,14 @@ function ordersShareAnyIdentity(
       desired.customClientOrderId,
       active.customClientOrderId,
     ) ||
-    sharesDefinedValue(desired.clientAlgoId, active.clientAlgoId) ||
-    sharesDefinedValue(desired.exchangeAlgoId, active.exchangeAlgoId)
+    sharesDefinedValue(
+      desired.customTriggerOrderId,
+      active.customTriggerOrderId,
+    ) ||
+    sharesDefinedValue(
+      desired.exchangeTriggerOrderId,
+      active.exchangeTriggerOrderId,
+    )
   );
 }
 

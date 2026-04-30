@@ -446,7 +446,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Return one open order by any known exchange/client/algo identity.
+   * Return one open order by any known exchange/custom identity.
    */
   getOrder(
     scope: AccountScope,
@@ -1192,7 +1192,7 @@ export class ExchangeAccountStateStore {
    * Decide whether an existing open order is covered by this snapshot.
    *
    * Order kind coverage keeps separate exchange feeds, such as regular orders
-   * and algo/conditional orders, from terminating each other accidentally.
+   * and trigger/conditional orders, from terminating each other accidentally.
    */
   #isOrderCovered(
     order: NormalizedOrder,
@@ -1240,7 +1240,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Find an existing order using any shared exchange/client/algo identity.
+   * Find an existing order using any shared exchange/custom identity.
    *
    * This allows a local client-id-only order to converge with a later REST row
    * that includes the exchange order id.
@@ -1578,8 +1578,8 @@ function openOrderMatchesFilter(
     matchesOptional(order.owner, filter.owner) &&
     matchesOptional(order.exchangeOrderId, filter.exchangeOrderId) &&
     matchesOptional(order.customClientOrderId, filter.customClientOrderId) &&
-    matchesOptional(order.clientAlgoId, filter.clientAlgoId) &&
-    matchesOptional(order.exchangeAlgoId, filter.exchangeAlgoId)
+    matchesOptional(order.customTriggerOrderId, filter.customTriggerOrderId) &&
+    matchesOptional(order.exchangeTriggerOrderId, filter.exchangeTriggerOrderId)
   );
 }
 
@@ -1592,7 +1592,7 @@ function fillMatchesFilter(fill: NormalizedFill, filter: FillFilter): boolean {
     matchesOptional(fill.exchangeTradeId, filter.exchangeTradeId) &&
     matchesOptional(fill.exchangeOrderId, filter.exchangeOrderId) &&
     matchesOptional(fill.customClientOrderId, filter.customClientOrderId) &&
-    matchesOptional(fill.clientAlgoId, filter.clientAlgoId)
+    matchesOptional(fill.customTriggerOrderId, filter.customTriggerOrderId)
   );
 }
 

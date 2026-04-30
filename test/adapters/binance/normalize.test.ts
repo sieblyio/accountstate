@@ -101,7 +101,7 @@ describe('Binance adapter normalizers', () => {
     });
   });
 
-  it('maps USD-M regular and Algo order client ids', () => {
+  it('maps USD-M regular and Algo order custom ids', () => {
     expect(
       normalizeBinanceUsdmRegularOpenOrder(
         regularOrder({ clientOrderId: 'dca-client-1' }),
@@ -121,8 +121,8 @@ describe('Binance adapter normalizers', () => {
       ),
     ).toMatchObject({
       kind: 'algo',
-      exchangeAlgoId: '2001',
-      clientAlgoId: 'sl-client-1',
+      exchangeTriggerOrderId: '2001',
+      customTriggerOrderId: 'sl-client-1',
       status: 'new',
     });
   });
@@ -196,8 +196,8 @@ describe('Binance adapter normalizers', () => {
       expect.objectContaining({
         type: 'terminal_evidence',
         identity: {
-          clientAlgoId: 'x-15PC4ZJyATmom1v3ns',
-          exchangeAlgoId: '3000001400283750',
+          customTriggerOrderId: 'x-15PC4ZJyATmom1v3ns',
+          exchangeTriggerOrderId: '3000001400283750',
         },
         reason: 'triggered',
       }),
@@ -219,8 +219,8 @@ describe('Binance adapter normalizers', () => {
       expect.objectContaining({
         type: 'terminal_evidence',
         identity: {
-          clientAlgoId: 'algo-client-1',
-          exchangeAlgoId: '2001',
+          customTriggerOrderId: 'algo-client-1',
+          exchangeTriggerOrderId: '2001',
         },
         reason: 'cancelled',
       }),
@@ -257,7 +257,7 @@ describe('Binance adapter normalizers', () => {
     expect(state.getOpenOrders(scope)).toEqual([]);
   });
 
-  it('uses caller-supplied parsers for app-specific Binance client ids', () => {
+  it('uses caller-supplied parsers for app-specific Binance custom ids', () => {
     const parser = createBinanceManagedOrderParser((clientId, order) => ({
       strategyId: clientId.split('-')[0],
       role: order.kind === 'algo' ? 'SL' : 'DCA',
@@ -265,7 +265,7 @@ describe('Binance adapter normalizers', () => {
 
     expect(
       parser.parse({
-        ...normalizedAlgoOrder({ clientAlgoId: 'strategy-1-stop' }),
+        ...normalizedAlgoOrder({ customTriggerOrderId: 'strategy-1-stop' }),
       }),
     ).toEqual({ strategyId: 'strategy', role: 'SL' });
   });
@@ -347,7 +347,7 @@ describe('Binance adapter normalizers', () => {
     );
     const desired = normalizedAlgoOrder({
       symbol: 'BRUSDT',
-      clientAlgoId: 'x-15PC4ZJyCPQmom2a88xERR',
+      customTriggerOrderId: 'x-15PC4ZJyCPQmom2a88xERR',
       side: 'SELL',
       type: 'STOP_MARKET',
       exchangePositionSide: 'LONG',
@@ -588,7 +588,7 @@ function normalizedAlgoOrder(
     ...scope,
     symbol: 'BTCUSDT',
     kind: 'algo',
-    clientAlgoId: 'algo-client-1',
+    customTriggerOrderId: 'algo-client-1',
     side: 'SELL',
     type: 'STOP_MARKET',
     status: 'new',

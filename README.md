@@ -130,12 +130,13 @@ const lifecycle = state.getLifecycle(scope, {
 });
 ```
 
-If your client order IDs encode ownership metadata, register a small parser once:
+If your custom order IDs encode ownership metadata, register a small parser once:
 
 ```typescript
 state.registerManagedOrderParser({
   parse(order) {
-    return parseMyManagedClientId(order.customClientOrderId);
+    const clientId = order.customClientOrderId ?? order.customTriggerOrderId;
+    return clientId ? parseMyManagedClientId(clientId) : undefined;
   },
 });
 ```
@@ -170,7 +171,8 @@ For Binance USD-M user-data streams, `binance.ws.userDataEvent()` handles
 `ACCOUNT_UPDATE` balance/position updates, `ORDER_TRADE_UPDATE` order/fill
 updates, Algo updates, and lightweight trade events. When an Algo order
 triggers, Binance emits normal order updates for the generated order; the
-adapter keeps that regular order separate from the terminal Algo row.
+adapter keeps that regular order separate from the terminal Algo row by mapping
+Binance Algo ids to generic trigger-order identity fields.
 
 The Binance adapter is pure: it does not create REST clients, WebSocket clients,
 timers, retries, API keys, or stream sessions. It only accepts objects you

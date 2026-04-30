@@ -24,7 +24,7 @@ export function getBalanceKey(balance: NormalizedBalance): string {
 }
 
 /**
- * Prefer stable exchange/client/algo ids for order identity.
+ * Prefer stable exchange/custom ids for order identity.
  *
  * The synthetic fallback is only for rows without any exchange-provided or
  * app-provided identity; adapters should supply one of the real id fields when
@@ -37,11 +37,11 @@ export function getOrderKey(order: NormalizedOrder): string {
   if (order.customClientOrderId) {
     return `customClientOrderId:${order.customClientOrderId}`;
   }
-  if (order.exchangeAlgoId) {
-    return `exchangeAlgoId:${order.exchangeAlgoId}`;
+  if (order.exchangeTriggerOrderId) {
+    return `exchangeTriggerOrderId:${order.exchangeTriggerOrderId}`;
   }
-  if (order.clientAlgoId) {
-    return `clientAlgoId:${order.clientAlgoId}`;
+  if (order.customTriggerOrderId) {
+    return `customTriggerOrderId:${order.customTriggerOrderId}`;
   }
 
   return [
@@ -72,8 +72,8 @@ export function getFillKey(fill: NormalizedFill): string {
   if (fill.customClientOrderId) {
     return `customClientOrderId:${fill.customClientOrderId}:${fill.executedAtMs}`;
   }
-  if (fill.clientAlgoId) {
-    return `clientAlgoId:${fill.clientAlgoId}:${fill.executedAtMs}`;
+  if (fill.customTriggerOrderId) {
+    return `customTriggerOrderId:${fill.customTriggerOrderId}:${fill.executedAtMs}`;
   }
 
   return [
@@ -99,8 +99,8 @@ export function ordersShareIdentity(
   return (
     sharesDefinedValue(a.exchangeOrderId, b.exchangeOrderId) ||
     sharesDefinedValue(a.customClientOrderId, b.customClientOrderId) ||
-    sharesDefinedValue(a.exchangeAlgoId, b.exchangeAlgoId) ||
-    sharesDefinedValue(a.clientAlgoId, b.clientAlgoId)
+    sharesDefinedValue(a.exchangeTriggerOrderId, b.exchangeTriggerOrderId) ||
+    sharesDefinedValue(a.customTriggerOrderId, b.customTriggerOrderId)
   );
 }
 
@@ -117,8 +117,14 @@ export function orderMatchesIdentity(
       order.customClientOrderId,
       identity.customClientOrderId,
     ) ||
-    sharesDefinedValue(order.exchangeAlgoId, identity.exchangeAlgoId) ||
-    sharesDefinedValue(order.clientAlgoId, identity.clientAlgoId)
+    sharesDefinedValue(
+      order.exchangeTriggerOrderId,
+      identity.exchangeTriggerOrderId,
+    ) ||
+    sharesDefinedValue(
+      order.customTriggerOrderId,
+      identity.customTriggerOrderId,
+    )
   );
 }
 

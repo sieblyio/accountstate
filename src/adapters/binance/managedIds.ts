@@ -11,14 +11,14 @@ export type BinanceManagedClientIdParser = (
 
 /**
  * Build a store parser for app-specific metadata encoded in Binance regular
- * `clientOrderId` and Algo `clientAlgoId` values.
+ * `clientOrderId` and trigger-order `clientAlgoId` values.
  */
 export function createBinanceManagedOrderParser(
   parseClientId: BinanceManagedClientIdParser,
 ): ManagedOrderParser {
   return {
     parse(order: NormalizedOrder): ManagedOrderMetadata | undefined {
-      const clientId = order.customClientOrderId ?? order.clientAlgoId;
+      const clientId = order.customClientOrderId ?? order.customTriggerOrderId;
       return clientId ? parseClientId(clientId, order) : undefined;
     },
   };

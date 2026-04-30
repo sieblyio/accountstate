@@ -487,7 +487,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       kind: 'algo',
       exchangeOrderId: undefined,
       customClientOrderId: undefined,
-      clientAlgoId: 'algo-client-1',
+      customTriggerOrderId: 'algo-client-1',
     });
     const ethRegular = order({
       symbol: 'ETHUSDT',
@@ -577,6 +577,59 @@ describe('ExchangeAccountStateStore snapshots', () => {
       customClientOrderId: 'client-1001',
       status: 'new',
     });
+  });
+
+  it('keeps regular custom ids separate from trigger-order custom ids', () => {
+    const state = new ExchangeAccountStateStore();
+
+    syncSnapshot(state, {
+      scope,
+      subject: 'openOrders',
+      mode: 'upsert-only',
+      rows: [
+        order({
+          kind: 'regular',
+          exchangeOrderId: '1001',
+          customClientOrderId: 'shared-client-id',
+        }),
+        order({
+          kind: 'algo',
+          exchangeOrderId: undefined,
+          customClientOrderId: undefined,
+          exchangeTriggerOrderId: 'trigger-1001',
+          customTriggerOrderId: 'shared-client-id',
+          type: 'STOP_MARKET',
+          side: 'SELL',
+        }),
+      ],
+      source: 'rest',
+      asOfMs: 1,
+    });
+
+    expect(state.getOpenOrders(scope)).toHaveLength(2);
+    expect(
+      state.getOrder(scope, { customClientOrderId: 'shared-client-id' }),
+    ).toMatchObject({ kind: 'regular', exchangeOrderId: '1001' });
+    expect(
+      state.getOrder(scope, { customTriggerOrderId: 'shared-client-id' }),
+    ).toMatchObject({
+      kind: 'algo',
+      exchangeTriggerOrderId: 'trigger-1001',
+    });
+
+    state.orderNotFound({
+      scope,
+      identity: { customTriggerOrderId: 'shared-client-id' },
+      reason: 'triggered',
+      atMs: 2,
+    });
+
+    expect(state.getOpenOrders(scope)).toEqual([
+      expect.objectContaining({
+        kind: 'regular',
+        customClientOrderId: 'shared-client-id',
+      }),
+    ]);
   });
 
   it('balances and fills upsert and replace by their identities', () => {
