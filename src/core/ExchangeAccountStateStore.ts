@@ -3,8 +3,15 @@ import {
   getFillKey,
   getOrderKey,
   getPositionKey,
+  orderMatchesIdentity,
   ordersShareIdentity,
 } from './indexes.js';
+import type {
+  LocalSubmissionAcceptedFact,
+  LocalSubmissionRejectedFact,
+  LocalSubmissionUnknownFact,
+  TerminalEvidenceFact,
+} from './facts.js';
 import type {
   AccountScope,
   AccountView,
@@ -16,12 +23,14 @@ import type {
   NormalizedFill,
   NormalizedOrder,
   NormalizedPosition,
+  OrderIdentity,
   PositionLifecycle,
   SnapshotCoverage,
   SnapshotInput,
   SnapshotSubject,
   StateSource,
   SubjectWatermark,
+  HydrationNeed,
 } from './types.js';
 import { copyScope, createScopeKey, isSameScope } from './utils.js';
 
@@ -33,6 +42,7 @@ interface ScopeState {
   lifecycles: PositionLifecycle[];
   confidence: AccountViewConfidence;
   watermarks: AccountWatermarks;
+  hydrationNeeds: Map<string, HydrationNeed>;
 }
 
 interface ReplacementResult {
@@ -145,6 +155,228 @@ export class ExchangeAccountStateStore {
   }
 
   /**
+   * Record that a locally submitted order was accepted by the parent exchange
+   * client before stream or REST confirmation has arrived.
+   *
+   * The order is kept visible as `provisional`, keyed by whatever identity is
+   * available, so a planner cannot accidentally submit the same client id twice
+   * during the confirmation window.
+   */
+  applyLocalSubmissionAccepted(input: LocalSubmissionAcceptedFact): ChangeSet {
+    const state = this.getOrCreateScopeState(input.scope);
+    const changeSet = createEmptyChangeSet(input.scope);
+    const confidenceBefore = state.confidence;
+
+    if (!isSameScope(input.scope, input.order)) {
+      changeSet.warnings.push({
+        name: 'local_submission_order_scope_mismatch',
+        scope: input.scope,
+        message:
+          'Ignoring accepted local submission with mismatched order scope.',
+        context: { orderScope: input.order },
+      });
+      changeSet.changed = true;
+      return changeSet;
+    }
+
+    const provisionalOrder = createProvisionalOrder(input);
+    const existingKey = this.findExistingOrderKey(
+      state.openOrders,
+      provisionalOrder,
+    );
+    const duplicate = findDuplicateActiveClientOrder(
+      state.openOrders,
+      provisionalOrder,
+      existingKey,
+    );
+    const existing = existingKey
+      ? state.openOrders.get(existingKey)
+      : undefined;
+    if (
+      duplicate ||
+      (existing &&
+        existing.customClientOrderId === provisionalOrder.customClientOrderId &&
+        isActiveOrProvisionalOrder(existing))
+    ) {
+      changeSet.warnings.push({
+        name: 'duplicate_active_custom_client_order_id',
+        scope: input.scope,
+        message:
+          'Accepted local submission shares a custom client order id with another active order.',
+        context: {
+          customClientOrderId: provisionalOrder.customClientOrderId,
+          duplicate,
+        },
+      });
+    }
+
+    const key = getOrderKey(provisionalOrder);
+    if (!existing) {
+      state.openOrders.set(key, cloneOrder(provisionalOrder));
+      changeSet.rowsInserted++;
+      changeSet.changed = true;
+    } else {
+      if (existingKey && existingKey !== key) {
+        state.openOrders.delete(existingKey);
+      }
+      if (!areRowsEqual(existing, provisionalOrder) || existingKey !== key) {
+        state.openOrders.set(key, cloneOrder(provisionalOrder));
+        changeSet.rowsUpdated++;
+        changeSet.changed = true;
+      }
+    }
+
+    state.confidence = {
+      ...state.confidence,
+      openOrders: 'local_only',
+    };
+    changeSet.confidenceChanged = !isSameConfidence(
+      confidenceBefore,
+      state.confidence,
+    );
+    changeSet.changed =
+      changeSet.changed ||
+      changeSet.confidenceChanged ||
+      changeSet.warnings.length > 0;
+
+    return changeSet;
+  }
+
+  /**
+   * Record that a local submission was rejected.
+   *
+   * Any matching provisional/open order is removed, and an explicit hydration
+   * need is stored so the parent app can reconcile open orders before planning.
+   */
+  applyLocalSubmissionRejected(input: LocalSubmissionRejectedFact): ChangeSet {
+    const state = this.getOrCreateScopeState(input.scope);
+    const changeSet = createEmptyChangeSet(input.scope);
+    const confidenceBefore = state.confidence;
+    const terminalRows = this.removeOrderByIdentity(
+      state.openOrders,
+      identityFromClientId(input.clientId),
+    );
+
+    changeSet.rowsTerminal += terminalRows;
+    changeSet.warnings.push({
+      name: 'local_submission_rejected',
+      scope: input.scope,
+      message: 'Local submission was rejected by the exchange client.',
+      context: {
+        intentId: input.intentId,
+        clientId: input.clientId,
+        error: input.error,
+      },
+    });
+    addHydrationNeed(state, {
+      scope: input.scope,
+      subject: 'openOrders',
+      reason: 'conflicting_state',
+      priority: 'soon',
+      requestedAtMs: input.rejectedAtMs,
+    });
+    state.confidence = {
+      ...state.confidence,
+      openOrders: 'stale',
+    };
+
+    changeSet.confidenceChanged = !isSameConfidence(
+      confidenceBefore,
+      state.confidence,
+    );
+    changeSet.changed = true;
+
+    return changeSet;
+  }
+
+  /**
+   * Record an indeterminate local submission result.
+   *
+   * Existing provisional rows are deliberately left in place. The parent app can
+   * use `getHydrationNeeds()` to schedule an immediate open-order hydration.
+   */
+  applyLocalSubmissionUnknown(input: LocalSubmissionUnknownFact): ChangeSet {
+    const state = this.getOrCreateScopeState(input.scope);
+    const changeSet = createEmptyChangeSet(input.scope);
+    const confidenceBefore = state.confidence;
+
+    changeSet.warnings.push({
+      name: 'local_submission_unknown',
+      scope: input.scope,
+      message:
+        'Local submission result is unknown; open orders need exchange hydration.',
+      context: {
+        intentId: input.intentId,
+        clientId: input.clientId,
+        error: input.error,
+      },
+    });
+    addHydrationNeed(state, {
+      scope: input.scope,
+      subject: 'openOrders',
+      reason: 'submission_unknown',
+      priority: 'immediate',
+      requestedAtMs: input.atMs,
+    });
+    state.confidence = {
+      ...state.confidence,
+      openOrders: 'stale',
+    };
+
+    changeSet.confidenceChanged = !isSameConfidence(
+      confidenceBefore,
+      state.confidence,
+    );
+    changeSet.changed = true;
+
+    return changeSet;
+  }
+
+  /**
+   * Apply explicit terminal evidence for a known order identity.
+   *
+   * This is the escape hatch for facts such as "unknown order on cancel" or a
+   * later authoritative lookup proving an order is no longer open.
+   */
+  markOrderTerminal(input: TerminalEvidenceFact): ChangeSet {
+    const state = this.getOrCreateScopeState(input.scope);
+    const changeSet = createEmptyChangeSet(input.scope);
+    const rowsTerminal = this.removeOrderByIdentity(
+      state.openOrders,
+      input.identity,
+    );
+
+    changeSet.rowsTerminal = rowsTerminal;
+    if (rowsTerminal === 0) {
+      changeSet.warnings.push({
+        name: 'terminal_order_not_found',
+        scope: input.scope,
+        message: 'Terminal evidence did not match any active open order.',
+        context: {
+          identity: input.identity,
+          reason: input.reason,
+        },
+      });
+    }
+    changeSet.changed = rowsTerminal > 0 || changeSet.warnings.length > 0;
+
+    return changeSet;
+  }
+
+  /**
+   * Return explicit hydration needs recorded by local submission and stream
+   * health facts. The parent application still owns scheduling and networking.
+   */
+  getHydrationNeeds(scope: AccountScope): HydrationNeed[] {
+    const state = this.getScopeState(scope);
+    if (!state) {
+      return [];
+    }
+
+    return Array.from(state.hydrationNeeds.values()).map(cloneHydrationNeed);
+  }
+
+  /**
    * Return the current best local belief for a scope.
    *
    * The returned rows are clones so callers can plan from the view without
@@ -157,7 +389,11 @@ export class ExchangeAccountStateStore {
     const openOrders = state ? Array.from(state.openOrders.values()) : [];
     const balances = state ? Array.from(state.balances.values()) : [];
     const fills = state ? Array.from(state.fills.values()) : [];
-    const hydrationReasons = getHydrationReasons(confidence, openOrders);
+    const hydrationReasons = getHydrationReasons(
+      confidence,
+      openOrders,
+      state ? Array.from(state.hydrationNeeds.values()) : [],
+    );
 
     return {
       scope: copyScope(scope),
@@ -418,9 +654,28 @@ export class ExchangeAccountStateStore {
       lifecycles: [],
       confidence: createInitialConfidence(),
       watermarks: {},
+      hydrationNeeds: new Map(),
     };
     this.scopes.set(key, created);
     return created;
+  }
+
+  /**
+   * Remove an open order by any supplied identity fields.
+   */
+  private removeOrderByIdentity(
+    collection: Map<string, NormalizedOrder>,
+    identity: OrderIdentity,
+  ): number {
+    let terminalRows = 0;
+    for (const [key, order] of Array.from(collection.entries())) {
+      if (orderMatchesIdentity(order, identity)) {
+        collection.delete(key);
+        terminalRows++;
+      }
+    }
+
+    return terminalRows;
   }
 }
 
@@ -457,6 +712,85 @@ function replaceMissingRows<T extends Row>(
   }
 
   return { terminal, stale };
+}
+
+/**
+ * Normalize a locally accepted submission into the provisional open-order row
+ * the planner should see before exchange confirmation arrives.
+ */
+function createProvisionalOrder(
+  input: LocalSubmissionAcceptedFact,
+): NormalizedOrder {
+  const order = cloneOrder(input.order);
+  return {
+    ...order,
+    customClientOrderId: order.customClientOrderId ?? input.clientId,
+    status: 'provisional',
+    source: 'local',
+    acceptedAtMs: input.acceptedAtMs,
+    updatedAtMs: input.acceptedAtMs,
+  };
+}
+
+/**
+ * Build an order identity from a local client id, if one is available.
+ */
+function identityFromClientId(clientId: string | undefined): OrderIdentity {
+  return clientId ? { customClientOrderId: clientId } : {};
+}
+
+/**
+ * Store a hydration need by subject/reason so repeated unknown results update
+ * the request instead of creating duplicate scheduler work.
+ */
+function addHydrationNeed(state: ScopeState, need: HydrationNeed): void {
+  state.hydrationNeeds.set(getHydrationNeedKey(need), cloneHydrationNeed(need));
+}
+
+/**
+ * Stable key for a hydration need within one account scope.
+ */
+function getHydrationNeedKey(need: HydrationNeed): string {
+  return `${need.subject}:${need.reason}`;
+}
+
+/**
+ * Locate another active order with the same custom client id.
+ */
+function findDuplicateActiveClientOrder(
+  collection: Map<string, NormalizedOrder>,
+  candidate: NormalizedOrder,
+  candidateExistingKey: string | undefined,
+): NormalizedOrder | undefined {
+  if (!candidate.customClientOrderId) {
+    return undefined;
+  }
+
+  for (const [key, existing] of collection.entries()) {
+    if (key === candidateExistingKey) {
+      continue;
+    }
+    if (
+      existing.customClientOrderId === candidate.customClientOrderId &&
+      isActiveOrProvisionalOrder(existing)
+    ) {
+      return cloneOrder(existing);
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Return true for order states that should block reusing a custom client id.
+ */
+function isActiveOrProvisionalOrder(order: NormalizedOrder): boolean {
+  return (
+    order.status === 'new' ||
+    order.status === 'partially_filled' ||
+    order.status === 'pending_cancel' ||
+    order.status === 'provisional'
+  );
 }
 
 /**
@@ -561,6 +895,7 @@ function confidenceFromSource(source: StateSource): ConfidenceState {
 function getHydrationReasons(
   confidence: AccountViewConfidence,
   openOrders: NormalizedOrder[],
+  hydrationNeeds: HydrationNeed[],
 ): string[] {
   const reasons: string[] = [];
   for (const subject of [
@@ -583,6 +918,9 @@ function getHydrationReasons(
 
   if (openOrders.some((order) => order.status === 'stale')) {
     reasons.push('openOrders_stale');
+  }
+  for (const need of hydrationNeeds) {
+    reasons.push(`${need.subject}_${need.reason}`);
   }
 
   return Array.from(new Set(reasons));
@@ -787,6 +1125,16 @@ function cloneFill(fill: NormalizedFill): NormalizedFill {
  */
 function cloneLifecycle(lifecycle: PositionLifecycle): PositionLifecycle {
   return { ...lifecycle };
+}
+
+/**
+ * Clone hydration needs before exposing them to the scheduler.
+ */
+function cloneHydrationNeed(need: HydrationNeed): HydrationNeed {
+  return {
+    ...need,
+    scope: copyScope(need.scope),
+  };
 }
 
 /**

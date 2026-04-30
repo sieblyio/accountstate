@@ -3,6 +3,7 @@ import type {
   NormalizedFill,
   NormalizedOrder,
   NormalizedPosition,
+  OrderIdentity,
 } from './types.js';
 
 /**
@@ -100,6 +101,24 @@ export function ordersShareIdentity(
     sharesDefinedValue(a.customClientOrderId, b.customClientOrderId) ||
     sharesDefinedValue(a.exchangeAlgoId, b.exchangeAlgoId) ||
     sharesDefinedValue(a.clientAlgoId, b.clientAlgoId)
+  );
+}
+
+/**
+ * Return true when an order matches any supplied terminal/cancel identity.
+ */
+export function orderMatchesIdentity(
+  order: NormalizedOrder,
+  identity: OrderIdentity,
+): boolean {
+  return (
+    sharesDefinedValue(order.exchangeOrderId, identity.exchangeOrderId) ||
+    sharesDefinedValue(
+      order.customClientOrderId,
+      identity.customClientOrderId,
+    ) ||
+    sharesDefinedValue(order.exchangeAlgoId, identity.exchangeAlgoId) ||
+    sharesDefinedValue(order.clientAlgoId, identity.clientAlgoId)
   );
 }
 
