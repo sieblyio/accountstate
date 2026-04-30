@@ -1,9 +1,9 @@
 {
   "name": "accountstate",
-  "version": "0.0.30",
+  "version": "0.0.31",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tiagosiebler/accountstate.git"
+    "url": "git+https://github.com/sieblyio/accountstate.git"
   },
   "description": "Simple, reusable, in-memory account state store for working with exchange positions",
   "author": "tiagosiebler",
@@ -52,5 +52,13 @@
     "ts-loader": "^9.5.7",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"
-  }
+  },
+  "funding": {
+    "type": "individual",
+    "url": "https://github.com/sponsors/tiagosiebler"
+  },
+  "bugs": {
+    "url": "https://github.com/sieblyio/accountstate/issues"
+  },
+  "homepage": "https://github.com/sieblyio/accountstate#readme"
 }
