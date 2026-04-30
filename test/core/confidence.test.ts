@@ -17,14 +17,20 @@ const accountSubjects: Exclude<SnapshotSubject, 'filters'>[] = [
 
 function hydrateAllSubjects(state: ExchangeAccountStateStore): void {
   for (const subject of accountSubjects) {
-    state.applySnapshot({
-      scope,
-      subject,
-      mode: 'replace-scope',
-      rows: [],
-      source: 'rest',
-      asOfMs: 1,
-    });
+    switch (subject) {
+      case 'positions':
+        state.syncPositions(scope, [], { mode: 'replace-scope', asOfMs: 1 });
+        break;
+      case 'openOrders':
+        state.syncOpenOrders(scope, [], { mode: 'replace-scope', asOfMs: 1 });
+        break;
+      case 'balances':
+        state.syncBalances(scope, [], { mode: 'replace-scope', asOfMs: 1 });
+        break;
+      case 'fills':
+        state.syncFills(scope, [], { mode: 'replace-scope', asOfMs: 1 });
+        break;
+    }
   }
 }
 
@@ -69,12 +75,8 @@ describe('ExchangeAccountStateStore confidence and hydration', () => {
   it('REST hydration clears startup needs for the hydrated subject', () => {
     const state = new ExchangeAccountStateStore();
 
-    const changeSet = state.applySnapshot({
-      scope,
-      subject: 'positions',
+    const changeSet = state.syncPositions(scope, [], {
       mode: 'replace-scope',
-      rows: [],
-      source: 'rest',
       asOfMs: 1,
     });
 
@@ -111,18 +113,12 @@ describe('ExchangeAccountStateStore confidence and hydration', () => {
     const state = new ExchangeAccountStateStore();
     hydrateAllSubjects(state);
 
-    const changeSet = state.applyStreamHealthFact({
-      type: 'stream_health',
-      scope,
-      status: 'gap',
+    const changeSet = state.streamGap(scope, {
       reason: 'sequence gap',
       atMs: 2,
-      provenance: {
-        source: 'ws',
-        receivedAtMs: 2,
-        eventId: 'gap-1',
-        sequence: '42',
-      },
+      receivedAtMs: 2,
+      eventId: 'gap-1',
+      sequence: '42',
     });
 
     expect(changeSet).toMatchObject({
@@ -161,10 +157,7 @@ describe('ExchangeAccountStateStore confidence and hydration', () => {
     const state = new ExchangeAccountStateStore();
     hydrateAllSubjects(state);
 
-    const changeSet = state.applyStreamHealthFact({
-      type: 'stream_health',
-      scope,
-      status: 'reconnected',
+    const changeSet = state.streamReconnected(scope, {
       reason: 'socket restarted',
       atMs: 2,
     });
@@ -199,12 +192,10 @@ describe('ExchangeAccountStateStore confidence and hydration', () => {
       const state = new ExchangeAccountStateStore();
       hydrateAllSubjects(state);
 
-      const changeSet = state.applyStreamHealthFact({
-        type: 'stream_health',
-        scope,
-        status,
-        atMs: 2,
-      });
+      const changeSet =
+        status === 'disconnected'
+          ? state.streamDisconnected(scope, { atMs: 2 })
+          : state.listenKeyExpired(scope, { atMs: 2 });
 
       expect(changeSet.warnings.map((warning) => warning.name)).toEqual([
         warningName,
@@ -225,21 +216,9 @@ describe('ExchangeAccountStateStore confidence and hydration', () => {
   it('REST snapshots clear matching stream hydration needs', () => {
     const state = new ExchangeAccountStateStore();
     hydrateAllSubjects(state);
-    state.applyStreamHealthFact({
-      type: 'stream_health',
-      scope,
-      status: 'gap',
-      atMs: 2,
-    });
+    state.streamGap(scope, { atMs: 2 });
 
-    state.applySnapshot({
-      scope,
-      subject: 'positions',
-      mode: 'replace-scope',
-      rows: [],
-      source: 'rest',
-      asOfMs: 3,
-    });
+    state.syncPositions(scope, [], { mode: 'replace-scope', asOfMs: 3 });
 
     expect(state.getAccountView(scope).confidence.positions).toBe(
       'rest_hydrated',

@@ -63,6 +63,23 @@ export type {
 } from './core/facts.js';
 
 export type {
+  CancelAcceptedInput,
+  ExchangeAccount,
+  ExchangeAccountReadinessOptions,
+  FillFilter,
+  OpenOrderFilter,
+  OrderAcceptedInput,
+  OrderNotFoundInput,
+  OrderRejectedInput,
+  OrderStatusUnknownInput,
+  PositionFilter,
+  PositionIdentity,
+  StreamHealthOptions,
+  StreamUpdateOptions,
+  SyncRowsOptions,
+} from './core/exchangeAccount.js';
+
+export type {
   ComparisonContext,
   ComparisonResult,
   ManagedOrderParser,

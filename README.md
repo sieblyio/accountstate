@@ -17,6 +17,7 @@ A TypeScript utility class for managing cryptocurrency exchange account state in
 - [Installation](#installation)
 - [Best Practices](#best-practices)
 - [Quick Start](#quick-start)
+- [Modern Exchange Account API](#modern-exchange-account-api)
 - [Core API](#core-api)
   - [Balance Management](#balance-management)
   - [Position Management](#position-management)
@@ -106,6 +107,77 @@ console.log('Account Summary:', summary);
 ```
 
 Or, check examples in the [./examples](./examples) folder.
+
+## Modern Exchange Account API
+
+For new exchange integrations, use `ExchangeAccountStateStore`. It keeps the
+hard reconciliation rules inside the library while exposing methods that match
+the workflow most trading apps already have: REST sync, private stream updates,
+order submission results, and a readiness check before planning.
+
+```typescript
+import { ExchangeAccountStateStore, type AccountScope } from 'accountstate';
+
+const scope: AccountScope = {
+  exchange: 'binance',
+  accountId: 'primary',
+  product: 'usdm',
+  environment: 'mainnet',
+};
+
+const state = new ExchangeAccountStateStore();
+
+// Initial and periodic REST hydration. Your app owns the REST client and maps
+// exchange payloads into normalized rows.
+state.syncPositions(scope, normalizedPositions);
+state.syncOpenOrders(scope, normalizedOpenOrders);
+state.syncBalances(scope, normalizedBalances);
+
+// Private stream updates. Your app owns the WebSocket client.
+state.onOrderUpdate(scope, normalizedOrderUpdate);
+state.onPositionUpdate(scope, normalizedPositionUpdate);
+
+// Stream health signals tell accountstate when local state needs hydration.
+state.streamReconnected(scope, { reason: 'socket restarted' });
+
+// After submitting an order, record exactly one outcome.
+state.orderAccepted({
+  scope,
+  intentId: 'intent-123',
+  clientOrderId: 'my-client-order-id',
+  order: provisionalOrder,
+});
+
+const account = state.getAccount(scope);
+
+if (!account.readyToTrade) {
+  for (const request of account.hydrationRequests) {
+    // Fetch the requested subject from REST, then call the matching sync method.
+    await hydrateFromRest(request);
+  }
+  return;
+}
+
+planner.plan(account);
+```
+
+When using exchange adapters, the intended shape is even simpler: the adapter
+normalizes raw REST responses or WebSocket events, and `ingest()` applies the
+resulting account facts in order.
+
+```typescript
+state.ingest(binance.rest.openOrders(scope, rawOpenOrdersResponse));
+state.ingest(binance.ws.userDataEvent(scope, rawUserDataEvent));
+
+const orders = state.getOpenOrders(scope);
+const order = state.getOrder(scope, { customClientOrderId: 'my-client-id' });
+```
+
+`ingest`, `applyFact`, `applyFacts`, `getHydrationNeeds`, and
+`getAccountView` are the public advanced escape hatches for fixtures, replay,
+and adapter authors. Lower-level reducer primitives such as snapshots,
+stream-health facts, and terminal marking are internal so application code is
+guided through the exchange-account methods above.
 
 ## Core API
 

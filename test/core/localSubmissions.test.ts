@@ -32,11 +32,10 @@ describe('ExchangeAccountStateStore local submission facts', () => {
   it('accepted local submissions create provisional open orders', () => {
     const state = new ExchangeAccountStateStore();
 
-    const changeSet = state.applyLocalSubmissionAccepted({
-      type: 'local_submission_accepted',
+    const changeSet = state.orderAccepted({
       scope,
       intentId: 'intent-1',
-      clientId: 'client-1001',
+      clientOrderId: 'client-1001',
       order: order({
         customClientOrderId: undefined,
         status: 'new',
@@ -70,20 +69,17 @@ describe('ExchangeAccountStateStore local submission facts', () => {
   it('REST snapshots confirm provisional client-id orders without duplicating them', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.applyLocalSubmissionAccepted({
-      type: 'local_submission_accepted',
+    state.orderAccepted({
       scope,
       intentId: 'intent-1',
-      clientId: 'client-1001',
+      clientOrderId: 'client-1001',
       order: order({ status: 'new' }),
       acceptedAtMs: 1,
     });
 
-    const changeSet = state.applySnapshot({
+    const changeSet = state.syncOpenOrders(
       scope,
-      subject: 'openOrders',
-      mode: 'upsert-only',
-      rows: [
+      [
         order({
           exchangeOrderId: '1001',
           customClientOrderId: 'client-1001',
@@ -92,9 +88,8 @@ describe('ExchangeAccountStateStore local submission facts', () => {
           updatedAtMs: 2,
         }),
       ],
-      source: 'rest',
-      asOfMs: 2,
-    });
+      { mode: 'upsert-only', source: 'rest', asOfMs: 2 },
+    );
 
     expect(changeSet).toMatchObject({
       rowsInserted: 0,
@@ -114,20 +109,18 @@ describe('ExchangeAccountStateStore local submission facts', () => {
   it('rejected submissions remove matching provisional orders and request hydration', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.applyLocalSubmissionAccepted({
-      type: 'local_submission_accepted',
+    state.orderAccepted({
       scope,
       intentId: 'intent-1',
-      clientId: 'client-1001',
+      clientOrderId: 'client-1001',
       order: order(),
       acceptedAtMs: 1,
     });
 
-    const changeSet = state.applyLocalSubmissionRejected({
-      type: 'local_submission_rejected',
+    const changeSet = state.orderRejected({
       scope,
       intentId: 'intent-1',
-      clientId: 'client-1001',
+      clientOrderId: 'client-1001',
       rejectedAtMs: 2,
       error: {
         message: 'Duplicate client order id',
@@ -184,20 +177,18 @@ describe('ExchangeAccountStateStore local submission facts', () => {
   it('unknown submissions keep provisional orders visible and request immediate hydration', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.applyLocalSubmissionAccepted({
-      type: 'local_submission_accepted',
+    state.orderAccepted({
       scope,
       intentId: 'intent-1',
-      clientId: 'client-1001',
+      clientOrderId: 'client-1001',
       order: order(),
       acceptedAtMs: 1,
     });
 
-    const changeSet = state.applyLocalSubmissionUnknown({
-      type: 'local_submission_unknown',
+    const changeSet = state.orderStatusUnknown({
       scope,
       intentId: 'intent-1',
-      clientId: 'client-1001',
+      clientOrderId: 'client-1001',
       atMs: 2,
       error: {
         message: 'Network timeout after request submission',
@@ -238,23 +229,19 @@ describe('ExchangeAccountStateStore local submission facts', () => {
   it('terminal evidence removes matching active orders by any identity', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.applySnapshot({
+    state.syncOpenOrders(
       scope,
-      subject: 'openOrders',
-      mode: 'upsert-only',
-      rows: [
+      [
         order({
           exchangeOrderId: '1001',
           customClientOrderId: 'client-1001',
           source: 'rest',
         }),
       ],
-      source: 'rest',
-      asOfMs: 1,
-    });
+      { mode: 'upsert-only', source: 'rest', asOfMs: 1 },
+    );
 
-    const changeSet = state.markOrderTerminal({
-      type: 'terminal_evidence',
+    const changeSet = state.orderNotFound({
       scope,
       identity: { customClientOrderId: 'client-1001' },
       reason: 'unknown_order_cancel_absent_from_hydration',
@@ -272,8 +259,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
   it('terminal evidence warns when no active order matches', () => {
     const state = new ExchangeAccountStateStore();
 
-    const changeSet = state.markOrderTerminal({
-      type: 'terminal_evidence',
+    const changeSet = state.orderNotFound({
       scope,
       identity: { customClientOrderId: 'missing-client-id' },
       reason: 'manual_operator_terminal',
@@ -292,20 +278,18 @@ describe('ExchangeAccountStateStore local submission facts', () => {
   it('duplicate accepted custom client ids produce a warning without duplicate rows', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.applyLocalSubmissionAccepted({
-      type: 'local_submission_accepted',
+    state.orderAccepted({
       scope,
       intentId: 'intent-1',
-      clientId: 'client-1001',
+      clientOrderId: 'client-1001',
       order: order(),
       acceptedAtMs: 1,
     });
 
-    const changeSet = state.applyLocalSubmissionAccepted({
-      type: 'local_submission_accepted',
+    const changeSet = state.orderAccepted({
       scope,
       intentId: 'intent-2',
-      clientId: 'client-1001',
+      clientOrderId: 'client-1001',
       order: order(),
       acceptedAtMs: 2,
     });
@@ -324,11 +308,10 @@ describe('ExchangeAccountStateStore local submission facts', () => {
   it('hydration needs are cloned before being returned', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.applyLocalSubmissionUnknown({
-      type: 'local_submission_unknown',
+    state.orderStatusUnknown({
       scope,
       intentId: 'intent-1',
-      clientId: 'client-1001',
+      clientOrderId: 'client-1001',
       atMs: 1,
       error: {
         message: 'Unknown result',

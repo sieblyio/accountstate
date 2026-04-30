@@ -1,10 +1,12 @@
 import { ExchangeAccountStateStore } from '../../src';
 import type {
   AccountScope,
+  ChangeSet,
   NormalizedBalance,
   NormalizedFill,
   NormalizedOrder,
   NormalizedPosition,
+  SnapshotInput,
 } from '../../src';
 
 const scope: AccountScope = {
@@ -89,6 +91,40 @@ function fill(overrides: Partial<NormalizedFill> = {}): NormalizedFill {
   };
 }
 
+function syncSnapshot(
+  state: ExchangeAccountStateStore,
+  input: SnapshotInput<unknown>,
+): ChangeSet {
+  switch (input.subject) {
+    case 'positions':
+      return state.syncPositions(
+        input.scope,
+        input.rows as NormalizedPosition[],
+        input,
+      );
+    case 'openOrders':
+      return state.syncOpenOrders(
+        input.scope,
+        input.rows as NormalizedOrder[],
+        input,
+      );
+    case 'balances':
+      return state.syncBalances(
+        input.scope,
+        input.rows as NormalizedBalance[],
+        input,
+      );
+    case 'fills':
+      return state.syncFills(
+        input.scope,
+        input.rows as NormalizedFill[],
+        input,
+      );
+    case 'filters':
+      throw new Error('Filter snapshots do not have a public sync helper yet.');
+  }
+}
+
 describe('ExchangeAccountStateStore snapshots', () => {
   it('starts with an empty unknown account view', () => {
     const state = new ExchangeAccountStateStore();
@@ -121,7 +157,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
     const state = new ExchangeAccountStateStore();
     const btcPosition = position();
 
-    const changeSet = state.applySnapshot({
+    const changeSet = syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'upsert-only',
@@ -152,7 +188,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
     const state = new ExchangeAccountStateStore();
     const btcPosition = position();
 
-    state.applySnapshot({
+    syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'replace-scope',
@@ -162,7 +198,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
     });
 
     expect(
-      state.applySnapshot({
+      syncSnapshot(state, {
         scope,
         subject: 'positions',
         mode: 'replace-scope',
@@ -183,7 +219,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
   it('upsert-only snapshots do not remove absent rows', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.applySnapshot({
+    syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'upsert-only',
@@ -192,7 +228,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       asOfMs: 1,
     });
 
-    const changeSet = state.applySnapshot({
+    const changeSet = syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'upsert-only',
@@ -215,7 +251,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
   it('replace-scope position snapshots close missing positions in the same scope', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.applySnapshot({
+    syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'upsert-only',
@@ -226,7 +262,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       source: 'rest',
       asOfMs: 1,
     });
-    state.applySnapshot({
+    syncSnapshot(state, {
       scope: otherScope,
       subject: 'positions',
       mode: 'upsert-only',
@@ -235,7 +271,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       asOfMs: 1,
     });
 
-    const changeSet = state.applySnapshot({
+    const changeSet = syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'replace-scope',
@@ -261,7 +297,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
   it('replace-symbols only replaces explicitly covered symbols', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.applySnapshot({
+    syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'upsert-only',
@@ -274,7 +310,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       asOfMs: 1,
     });
 
-    const changeSet = state.applySnapshot({
+    const changeSet = syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'replace-symbols',
@@ -314,7 +350,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       signedQuantity: '-0.200',
     });
 
-    state.applySnapshot({
+    syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'upsert-only',
@@ -323,7 +359,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       asOfMs: 1,
     });
 
-    const changeSet = state.applySnapshot({
+    const changeSet = syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'replace-symbols',
@@ -358,7 +394,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
   it('replace-symbols without symbol coverage does not remove existing rows', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.applySnapshot({
+    syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'upsert-only',
@@ -367,7 +403,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       asOfMs: 1,
     });
 
-    const changeSet = state.applySnapshot({
+    const changeSet = syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'replace-symbols',
@@ -398,7 +434,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       owner: 'manual',
     });
 
-    state.applySnapshot({
+    syncSnapshot(state, {
       scope,
       subject: 'openOrders',
       mode: 'upsert-only',
@@ -407,7 +443,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       asOfMs: 1,
     });
 
-    const changeSet = state.applySnapshot({
+    const changeSet = syncSnapshot(state, {
       scope,
       subject: 'openOrders',
       mode: 'replace-scope',
@@ -454,7 +490,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       customClientOrderId: 'client-1002',
     });
 
-    state.applySnapshot({
+    syncSnapshot(state, {
       scope,
       subject: 'openOrders',
       mode: 'upsert-only',
@@ -463,7 +499,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       asOfMs: 1,
     });
 
-    const changeSet = state.applySnapshot({
+    const changeSet = syncSnapshot(state, {
       scope,
       subject: 'openOrders',
       mode: 'replace-symbols',
@@ -493,7 +529,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
   it('order upserts reconcile client-id-only rows with later exchange ids', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.applySnapshot({
+    syncSnapshot(state, {
       scope,
       subject: 'openOrders',
       mode: 'upsert-only',
@@ -509,7 +545,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       asOfMs: 1,
     });
 
-    const changeSet = state.applySnapshot({
+    const changeSet = syncSnapshot(state, {
       scope,
       subject: 'openOrders',
       mode: 'upsert-only',
@@ -540,7 +576,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
   it('balances and fills upsert and replace by their identities', () => {
     const state = new ExchangeAccountStateStore();
 
-    const balanceChange = state.applySnapshot({
+    const balanceChange = syncSnapshot(state, {
       scope,
       subject: 'balances',
       mode: 'upsert-only',
@@ -549,7 +585,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       asOfMs: 1,
     });
 
-    const fillChange = state.applySnapshot({
+    const fillChange = syncSnapshot(state, {
       scope,
       subject: 'fills',
       mode: 'upsert-only',
@@ -567,7 +603,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       rowsUpdated: 0,
     });
 
-    const replaceBalances = state.applySnapshot({
+    const replaceBalances = syncSnapshot(state, {
       scope,
       subject: 'balances',
       mode: 'replace-scope',
@@ -592,7 +628,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
   it('warns and skips rows that do not match the snapshot subject or scope', () => {
     const state = new ExchangeAccountStateStore();
 
-    const changeSet = state.applySnapshot({
+    const changeSet = syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'upsert-only',
@@ -616,7 +652,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
   it('returns cloned views instead of mutable internal rows', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.applySnapshot({
+    syncSnapshot(state, {
       scope,
       subject: 'positions',
       mode: 'upsert-only',

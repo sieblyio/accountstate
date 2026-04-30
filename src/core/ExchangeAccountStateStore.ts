@@ -16,6 +16,18 @@ import {
   isSameWatermark,
 } from './confidence.js';
 import {
+  createCancelAcceptedTerminalFact,
+  createExchangeAccount,
+  createOrderAcceptedFact,
+  createOrderNotFoundFact,
+  createOrderRejectedFact,
+  createOrderStatusUnknownFact,
+  createStreamHealthFact,
+  createStreamUpdateSnapshotInput,
+  createSyncSnapshotInput,
+  createUnsupportedFactChangeSet,
+} from './exchangeAccount.js';
+import {
   getBalanceKey,
   getFillKey,
   getOrderKey,
@@ -24,12 +36,30 @@ import {
   ordersShareIdentity,
 } from './indexes.js';
 import type {
+  AccountFact,
   LocalSubmissionAcceptedFact,
   LocalSubmissionRejectedFact,
   LocalSubmissionUnknownFact,
+  NormalizedPrivateEvent,
   StreamHealthFact,
   TerminalEvidenceFact,
 } from './facts.js';
+import type {
+  CancelAcceptedInput,
+  ExchangeAccount,
+  ExchangeAccountReadinessOptions,
+  FillFilter,
+  OpenOrderFilter,
+  OrderAcceptedInput,
+  OrderNotFoundInput,
+  OrderRejectedInput,
+  OrderStatusUnknownInput,
+  PositionFilter,
+  PositionIdentity,
+  StreamHealthOptions,
+  StreamUpdateOptions,
+  SyncRowsOptions,
+} from './exchangeAccount.js';
 import type {
   AccountScope,
   AccountView,
@@ -44,6 +74,7 @@ import type {
   NormalizedPosition,
   OrderIdentity,
   PositionLifecycle,
+  Provenance,
   SnapshotCoverage,
   SnapshotInput,
 } from './types.js';
@@ -82,12 +113,391 @@ export class ExchangeAccountStateStore {
   private readonly scopes = new Map<string, ScopeState>();
 
   /**
+   * Sync a REST-style position snapshot. By default, absent positions in the
+   * covered scope are treated as closed.
+   */
+  syncPositions(
+    scope: AccountScope,
+    rows: NormalizedPosition[],
+    options?: SyncRowsOptions,
+  ): ChangeSet {
+    return this.#applySnapshot(
+      createSyncSnapshotInput(
+        scope,
+        'positions',
+        rows,
+        { mode: 'replace-scope', source: 'rest' },
+        options,
+      ),
+    );
+  }
+
+  /**
+   * Sync a REST-style open-order snapshot. Use `coverage` with `replace-symbols`
+   * when the exchange response only covers part of the account.
+   */
+  syncOpenOrders(
+    scope: AccountScope,
+    rows: NormalizedOrder[],
+    options?: SyncRowsOptions,
+  ): ChangeSet {
+    return this.#applySnapshot(
+      createSyncSnapshotInput(
+        scope,
+        'openOrders',
+        rows,
+        { mode: 'replace-scope', source: 'rest' },
+        options,
+      ),
+    );
+  }
+
+  /**
+   * Sync a REST-style balance snapshot for the account scope.
+   */
+  syncBalances(
+    scope: AccountScope,
+    rows: NormalizedBalance[],
+    options?: SyncRowsOptions,
+  ): ChangeSet {
+    return this.#applySnapshot(
+      createSyncSnapshotInput(
+        scope,
+        'balances',
+        rows,
+        { mode: 'replace-scope', source: 'rest' },
+        options,
+      ),
+    );
+  }
+
+  /**
+   * Sync fills/trades. Fills are append-like for most exchange APIs, so this
+   * defaults to upsert-only.
+   */
+  syncFills(
+    scope: AccountScope,
+    rows: NormalizedFill[],
+    options?: SyncRowsOptions,
+  ): ChangeSet {
+    return this.#applySnapshot(
+      createSyncSnapshotInput(
+        scope,
+        'fills',
+        rows,
+        { mode: 'upsert-only', source: 'rest' },
+        options,
+      ),
+    );
+  }
+
+  /**
+   * Apply one private-stream position update.
+   */
+  onPositionUpdate(
+    scope: AccountScope,
+    row: NormalizedPosition,
+    options?: StreamUpdateOptions,
+  ): ChangeSet {
+    return this.#applySnapshot(
+      createStreamUpdateSnapshotInput(scope, 'positions', row, options),
+    );
+  }
+
+  /**
+   * Apply one private-stream order update.
+   */
+  onOrderUpdate(
+    scope: AccountScope,
+    row: NormalizedOrder,
+    options?: StreamUpdateOptions,
+  ): ChangeSet {
+    return this.#applySnapshot(
+      createStreamUpdateSnapshotInput(scope, 'openOrders', row, options),
+    );
+  }
+
+  /**
+   * Apply one private-stream balance update.
+   */
+  onBalanceUpdate(
+    scope: AccountScope,
+    row: NormalizedBalance,
+    options?: StreamUpdateOptions,
+  ): ChangeSet {
+    return this.#applySnapshot(
+      createStreamUpdateSnapshotInput(scope, 'balances', row, options),
+    );
+  }
+
+  /**
+   * Apply one private-stream fill/trade update.
+   */
+  onFill(
+    scope: AccountScope,
+    row: NormalizedFill,
+    options?: StreamUpdateOptions,
+  ): ChangeSet {
+    return this.#applySnapshot(
+      createStreamUpdateSnapshotInput(scope, 'fills', row, options),
+    );
+  }
+
+  /**
+   * Mark the private stream connected.
+   */
+  streamConnected(
+    scope: AccountScope,
+    options?: StreamHealthOptions,
+  ): ChangeSet {
+    return this.#applyStreamHealthFact(
+      createStreamHealthFact(scope, 'connected', options),
+    );
+  }
+
+  /**
+   * Mark the private stream reconnected and request account hydration.
+   */
+  streamReconnected(
+    scope: AccountScope,
+    options?: StreamHealthOptions,
+  ): ChangeSet {
+    return this.#applyStreamHealthFact(
+      createStreamHealthFact(scope, 'reconnected', options),
+    );
+  }
+
+  /**
+   * Mark the private stream disconnected and request account hydration.
+   */
+  streamDisconnected(
+    scope: AccountScope,
+    options?: StreamHealthOptions,
+  ): ChangeSet {
+    return this.#applyStreamHealthFact(
+      createStreamHealthFact(scope, 'disconnected', options),
+    );
+  }
+
+  /**
+   * Mark a known private-stream gap and request account hydration.
+   */
+  streamGap(scope: AccountScope, options?: StreamHealthOptions): ChangeSet {
+    return this.#applyStreamHealthFact(
+      createStreamHealthFact(scope, 'gap', options),
+    );
+  }
+
+  /**
+   * Mark an expired listen key/session and request account hydration.
+   */
+  listenKeyExpired(
+    scope: AccountScope,
+    options?: StreamHealthOptions,
+  ): ChangeSet {
+    return this.#applyStreamHealthFact(
+      createStreamHealthFact(scope, 'expired', options),
+    );
+  }
+
+  /**
+   * Record that the exchange accepted an order submission.
+   */
+  orderAccepted(input: OrderAcceptedInput): ChangeSet {
+    return this.#applyLocalSubmissionAccepted(createOrderAcceptedFact(input));
+  }
+
+  /**
+   * Record that the exchange rejected an order submission.
+   */
+  orderRejected(input: OrderRejectedInput): ChangeSet {
+    return this.#applyLocalSubmissionRejected(createOrderRejectedFact(input));
+  }
+
+  /**
+   * Record that the submit call timed out or returned an indeterminate result.
+   */
+  orderStatusUnknown(input: OrderStatusUnknownInput): ChangeSet {
+    return this.#applyLocalSubmissionUnknown(
+      createOrderStatusUnknownFact(input),
+    );
+  }
+
+  /**
+   * Record a cancel acknowledgement when the target order identity is known.
+   */
+  cancelAccepted(input: CancelAcceptedInput): ChangeSet {
+    return this.#markOrderTerminal(createCancelAcceptedTerminalFact(input));
+  }
+
+  /**
+   * Record exchange evidence that an order is no longer open.
+   */
+  orderNotFound(input: OrderNotFoundInput): ChangeSet {
+    return this.#markOrderTerminal(createOrderNotFoundFact(input));
+  }
+
+  /**
+   * Return the account view most app code should use for planning decisions.
+   */
+  getAccount(
+    scope: AccountScope,
+    options?: ExchangeAccountReadinessOptions,
+  ): ExchangeAccount {
+    const view = this.getAccountView(scope);
+    return createExchangeAccount(view, this.getHydrationNeeds(scope), options);
+  }
+
+  /**
+   * Return current positions, optionally filtered by symbol or side.
+   */
+  getPositions(
+    scope: AccountScope,
+    filter: PositionFilter = {},
+  ): NormalizedPosition[] {
+    return this.getAccount(scope).positions.filter((position) =>
+      positionMatchesFilter(position, filter),
+    );
+  }
+
+  /**
+   * Return one position. If only a symbol is supplied and hedge-mode data has
+   * multiple sides for that symbol, this returns `undefined` instead of guessing.
+   */
+  getPosition(
+    scope: AccountScope,
+    identity: PositionIdentity,
+  ): NormalizedPosition | undefined {
+    const matches = this.getPositions(scope, identity);
+    return matches.length === 1 ? matches[0] : undefined;
+  }
+
+  /**
+   * Return current open orders, optionally filtered by common exchange fields.
+   */
+  getOpenOrders(
+    scope: AccountScope,
+    filter: OpenOrderFilter = {},
+  ): NormalizedOrder[] {
+    return this.getAccount(scope).openOrders.filter((order) =>
+      openOrderMatchesFilter(order, filter),
+    );
+  }
+
+  /**
+   * Return one open order by any known exchange/client/algo identity.
+   */
+  getOrder(
+    scope: AccountScope,
+    identity: OrderIdentity,
+  ): NormalizedOrder | undefined {
+    return this.getOpenOrders(scope).find((order) =>
+      orderMatchesIdentity(order, identity),
+    );
+  }
+
+  /**
+   * Return current balances.
+   */
+  getBalances(scope: AccountScope): NormalizedBalance[] {
+    return this.getAccount(scope).balances;
+  }
+
+  /**
+   * Return one balance by asset symbol, such as `USDT`.
+   */
+  getBalance(
+    scope: AccountScope,
+    asset: string,
+  ): NormalizedBalance | undefined {
+    return this.getBalances(scope).find((balance) => balance.asset === asset);
+  }
+
+  /**
+   * Return current fills/trades, optionally filtered by symbol or order identity.
+   */
+  getFills(scope: AccountScope, filter: FillFilter = {}): NormalizedFill[] {
+    return this.getAccount(scope).fills.filter((fill) =>
+      fillMatchesFilter(fill, filter),
+    );
+  }
+
+  ingest(input: AccountFact): ChangeSet;
+  ingest(inputs: AccountFact[]): ChangeSet[];
+  /**
+   * Developer-facing adapter/replay entrypoint for normalized facts or fact batches.
+   *
+   * @advanced Prefer the exchange-account methods (`syncOpenOrders`,
+   * `onOrderUpdate`, `orderAccepted`, etc.) in ordinary application code.
+   */
+  ingest(input: AccountFact | AccountFact[]): ChangeSet | ChangeSet[] {
+    return Array.isArray(input)
+      ? this.applyFacts(input)
+      : this.applyFact(input);
+  }
+
+  /**
+   * Dispatch one normalized fact. This is mainly for replay, fixtures, and
+   * advanced adapters; app integrations can use the exchange-facing methods above.
+   *
+   * @advanced Use `ingest` for adapter output and the exchange-account methods
+   * for normal REST/WebSocket/order-submission workflows.
+   */
+  applyFact(input: AccountFact): ChangeSet {
+    switch (input.type) {
+      case 'rest_snapshot':
+        return this.#applySnapshot(input);
+      case 'position_updated':
+      case 'order_updated':
+      case 'trade_executed':
+      case 'balance_updated':
+      case 'stream_gap':
+      case 'listen_key_expired':
+        return this.applyPrivateStreamEvent(input);
+      case 'local_submission_accepted':
+        return this.#applyLocalSubmissionAccepted(input);
+      case 'local_submission_rejected':
+        return this.#applyLocalSubmissionRejected(input);
+      case 'local_submission_unknown':
+        return this.#applyLocalSubmissionUnknown(input);
+      case 'local_cancel_accepted':
+        if (!input.target) {
+          return createUnsupportedFactChangeSet(input.scope, input.type);
+        }
+        return this.cancelAccepted({
+          scope: input.scope,
+          intentId: input.intentId,
+          identity: input.target,
+          acceptedAtMs: input.acceptedAtMs,
+          responseSummary: input.responseSummary,
+        });
+      case 'terminal_evidence':
+        return this.#markOrderTerminal(input);
+      case 'stream_health':
+        return this.#applyStreamHealthFact(input);
+      case 'hydration_gap':
+      case 'operator_state':
+        return createUnsupportedFactChangeSet(input.scope, input.type);
+    }
+  }
+
+  /**
+   * Dispatch normalized facts in order and return each change set.
+   *
+   * @advanced Use `ingest` for adapter output and the exchange-account methods
+   * for normal REST/WebSocket/order-submission workflows.
+   */
+  applyFacts(inputs: AccountFact[]): ChangeSet[] {
+    return inputs.map((input) => this.applyFact(input));
+  }
+
+  /**
    * Apply a normalized batch from a source such as REST, replay, test data, or
    * synthetic local state. Replacement modes make absent covered rows meaningful:
    * a missing position is terminal, while an absent app/provisional order stays
    * visible as stale until later phases can reconcile it explicitly.
    */
-  applySnapshot(input: SnapshotInput<unknown>): ChangeSet {
+  #applySnapshot(input: SnapshotInput<unknown>): ChangeSet {
     const state = this.getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
     const confidenceBefore = state.confidence;
@@ -180,7 +590,7 @@ export class ExchangeAccountStateStore {
    * stale and request hydration. A clean connection only updates stream
    * confidence/watermark.
    */
-  applyStreamHealthFact(input: StreamHealthFact): ChangeSet {
+  #applyStreamHealthFact(input: StreamHealthFact): ChangeSet {
     const state = this.getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
     const confidenceBefore = state.confidence;
@@ -227,7 +637,7 @@ export class ExchangeAccountStateStore {
    * available, so a planner cannot accidentally submit the same client id twice
    * during the confirmation window.
    */
-  applyLocalSubmissionAccepted(input: LocalSubmissionAcceptedFact): ChangeSet {
+  #applyLocalSubmissionAccepted(input: LocalSubmissionAcceptedFact): ChangeSet {
     const state = this.getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
     const confidenceBefore = state.confidence;
@@ -313,7 +723,7 @@ export class ExchangeAccountStateStore {
    * Any matching provisional/open order is removed, and an explicit hydration
    * need is stored so the parent app can reconcile open orders before planning.
    */
-  applyLocalSubmissionRejected(input: LocalSubmissionRejectedFact): ChangeSet {
+  #applyLocalSubmissionRejected(input: LocalSubmissionRejectedFact): ChangeSet {
     const state = this.getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
     const confidenceBefore = state.confidence;
@@ -360,7 +770,7 @@ export class ExchangeAccountStateStore {
    * Existing provisional rows are deliberately left in place. The parent app can
    * use `getHydrationNeeds()` to schedule an immediate open-order hydration.
    */
-  applyLocalSubmissionUnknown(input: LocalSubmissionUnknownFact): ChangeSet {
+  #applyLocalSubmissionUnknown(input: LocalSubmissionUnknownFact): ChangeSet {
     const state = this.getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
     const confidenceBefore = state.confidence;
@@ -403,7 +813,7 @@ export class ExchangeAccountStateStore {
    * This is the escape hatch for facts such as "unknown order on cancel" or a
    * later authoritative lookup proving an order is no longer open.
    */
-  markOrderTerminal(input: TerminalEvidenceFact): ChangeSet {
+  #markOrderTerminal(input: TerminalEvidenceFact): ChangeSet {
     const state = this.getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
     const rowsTerminal = this.removeOrderByIdentity(
@@ -431,6 +841,9 @@ export class ExchangeAccountStateStore {
   /**
    * Return explicit hydration needs recorded by local submission and stream
    * health facts. The parent application still owns scheduling and networking.
+   *
+   * Most application code can read the same requests from
+   * `getAccount(scope).hydrationRequests`.
    */
   getHydrationNeeds(scope: AccountScope): HydrationNeed[] {
     const state = this.getScopeState(scope);
@@ -446,6 +859,9 @@ export class ExchangeAccountStateStore {
    *
    * The returned rows are clones so callers can plan from the view without
    * accidentally mutating reducer state between fact applications.
+   *
+   * @advanced Most application code should prefer `getAccount(scope)`, which
+   * includes readiness booleans and hydration requests.
    */
   getAccountView(scope: AccountScope): AccountView {
     const state = this.getScopeState(scope);
@@ -472,6 +888,72 @@ export class ExchangeAccountStateStore {
       needsHydration: hydrationReasons.length > 0,
       hydrationReasons,
     };
+  }
+
+  /**
+   * Translate normalized private stream events into the same row reducers used by
+   * snapshots so stream and REST paths cannot drift.
+   */
+  private applyPrivateStreamEvent(input: NormalizedPrivateEvent): ChangeSet {
+    switch (input.type) {
+      case 'position_updated':
+        return this.#applySnapshot({
+          scope: input.scope,
+          subject: 'positions',
+          mode: 'upsert-only',
+          rows: [input.position],
+          source: input.provenance.source,
+          asOfMs: getProvenanceAsOfMs(input.provenance),
+          provenance: input.provenance,
+        });
+      case 'order_updated':
+        return this.#applySnapshot({
+          scope: input.scope,
+          subject: 'openOrders',
+          mode: 'upsert-only',
+          rows: [input.order],
+          source: input.provenance.source,
+          asOfMs: getProvenanceAsOfMs(input.provenance),
+          provenance: input.provenance,
+        });
+      case 'trade_executed':
+        return this.#applySnapshot({
+          scope: input.scope,
+          subject: 'fills',
+          mode: 'upsert-only',
+          rows: [input.fill],
+          source: input.provenance.source,
+          asOfMs: getProvenanceAsOfMs(input.provenance),
+          provenance: input.provenance,
+        });
+      case 'balance_updated':
+        return this.#applySnapshot({
+          scope: input.scope,
+          subject: 'balances',
+          mode: 'upsert-only',
+          rows: [input.balance],
+          source: input.provenance.source,
+          asOfMs: getProvenanceAsOfMs(input.provenance),
+          provenance: input.provenance,
+        });
+      case 'stream_gap':
+        return this.#applyStreamHealthFact({
+          type: 'stream_health',
+          scope: input.scope,
+          status: 'gap',
+          reason: input.reason,
+          atMs: input.provenance.receivedAtMs,
+          provenance: input.provenance,
+        });
+      case 'listen_key_expired':
+        return this.#applyStreamHealthFact({
+          type: 'stream_health',
+          scope: input.scope,
+          status: 'expired',
+          atMs: input.provenance.receivedAtMs,
+          provenance: input.provenance,
+        });
+    }
   }
 
   /**
@@ -894,6 +1376,69 @@ function createEmptyChangeSet(scope: AccountScope): ChangeSet {
 }
 
 /**
+ * Prefer exchange event time for stream-derived watermarks, then local receipt.
+ */
+function getProvenanceAsOfMs(provenance: Provenance): number {
+  return provenance.exchangeEventTimeMs ?? provenance.receivedAtMs;
+}
+
+/**
+ * Match position query helpers without collapsing hedge-mode sides.
+ */
+function positionMatchesFilter(
+  position: NormalizedPosition,
+  filter: PositionFilter,
+): boolean {
+  return (
+    matchesOptional(position.symbol, filter.symbol) &&
+    matchesOptional(
+      position.exchangePositionSide,
+      filter.exchangePositionSide,
+    ) &&
+    matchesOptional(position.strategySide, filter.strategySide)
+  );
+}
+
+/**
+ * Match open-order query helpers by common exchange-facing fields.
+ */
+function openOrderMatchesFilter(
+  order: NormalizedOrder,
+  filter: OpenOrderFilter,
+): boolean {
+  return (
+    matchesOptional(order.symbol, filter.symbol) &&
+    matchesOptional(order.kind, filter.kind) &&
+    matchesOptional(order.status, filter.status) &&
+    matchesOptional(order.owner, filter.owner) &&
+    matchesOptional(order.exchangeOrderId, filter.exchangeOrderId) &&
+    matchesOptional(order.customClientOrderId, filter.customClientOrderId) &&
+    matchesOptional(order.clientAlgoId, filter.clientAlgoId) &&
+    matchesOptional(order.exchangeAlgoId, filter.exchangeAlgoId)
+  );
+}
+
+/**
+ * Match fills by symbol, trade id, or order identity.
+ */
+function fillMatchesFilter(fill: NormalizedFill, filter: FillFilter): boolean {
+  return (
+    matchesOptional(fill.symbol, filter.symbol) &&
+    matchesOptional(fill.exchangeTradeId, filter.exchangeTradeId) &&
+    matchesOptional(fill.exchangeOrderId, filter.exchangeOrderId) &&
+    matchesOptional(fill.customClientOrderId, filter.customClientOrderId) &&
+    matchesOptional(fill.clientAlgoId, filter.clientAlgoId)
+  );
+}
+
+function matchesOptional<T>(
+  value: T | undefined,
+  expected: T | undefined,
+): boolean {
+  return expected === undefined || value === expected;
+}
+
+/**
  * `replace-symbols` requires explicit symbol coverage before any existing row
  * can be considered absent.
  */
@@ -1020,7 +1565,7 @@ function isObject(row: unknown): row is Record<string, unknown> {
 
 /**
  * Clone incoming rows before storing them so caller-owned objects cannot mutate
- * internal reducer state after `applySnapshot` returns.
+ * internal reducer state after a snapshot is applied.
  */
 function cloneRow<T extends Row>(row: T): T {
   return { ...row };
