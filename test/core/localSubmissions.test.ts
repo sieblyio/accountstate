@@ -145,15 +145,37 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     ]);
     expect(state.getAccountView(scope).openOrders).toEqual([]);
     expect(state.getAccountView(scope).confidence.openOrders).toBe('stale');
-    expect(state.getHydrationNeeds(scope)).toEqual([
-      {
-        scope,
-        subject: 'openOrders',
-        reason: 'conflicting_state',
-        priority: 'soon',
-        requestedAtMs: 2,
-      },
-    ]);
+    const hydrationNeeds = state.getHydrationNeeds(scope);
+    expect(hydrationNeeds).toEqual(
+      expect.arrayContaining([
+        {
+          scope,
+          subject: 'openOrders',
+          reason: 'conflicting_state',
+          priority: 'soon',
+          requestedAtMs: 2,
+        },
+      ]),
+    );
+    expect(hydrationNeeds).toHaveLength(4);
+    expect(hydrationNeeds).toContainEqual({
+      scope,
+      subject: 'positions',
+      reason: 'startup',
+      priority: 'immediate',
+    });
+    expect(hydrationNeeds).toContainEqual({
+      scope,
+      subject: 'balances',
+      reason: 'startup',
+      priority: 'immediate',
+    });
+    expect(hydrationNeeds).toContainEqual({
+      scope,
+      subject: 'fills',
+      reason: 'startup',
+      priority: 'immediate',
+    });
     expect(state.getAccountView(scope).hydrationReasons).toContain(
       'openOrders_conflicting_state',
     );
@@ -195,15 +217,19 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     expect(state.getAccountView(scope).openOrders[0].status).toBe(
       'provisional',
     );
-    expect(state.getHydrationNeeds(scope)).toEqual([
-      {
-        scope,
-        subject: 'openOrders',
-        reason: 'submission_unknown',
-        priority: 'immediate',
-        requestedAtMs: 2,
-      },
-    ]);
+    const hydrationNeeds = state.getHydrationNeeds(scope);
+    expect(hydrationNeeds).toEqual(
+      expect.arrayContaining([
+        {
+          scope,
+          subject: 'openOrders',
+          reason: 'submission_unknown',
+          priority: 'immediate',
+          requestedAtMs: 2,
+        },
+      ]),
+    );
+    expect(hydrationNeeds).toHaveLength(4);
     expect(state.getAccountView(scope).hydrationReasons).toContain(
       'openOrders_submission_unknown',
     );

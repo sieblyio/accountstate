@@ -1,4 +1,21 @@
 import {
+  cloneHydrationNeed,
+  confidenceFromSource,
+  confidenceFromStreamHealth,
+  confidenceKeyForSubject,
+  createInitialConfidence,
+  createStreamWatermark,
+  createWatermark,
+  getHydrationNeedKey,
+  getHydrationNeedsForConfidence,
+  getHydrationReasons,
+  getStreamHealthHydrationNeeds,
+  getStreamHealthWarning,
+  isHydratingSnapshotSource,
+  isSameConfidence,
+  isSameWatermark,
+} from './confidence.js';
+import {
   getBalanceKey,
   getFillKey,
   getOrderKey,
@@ -10,6 +27,7 @@ import type {
   LocalSubmissionAcceptedFact,
   LocalSubmissionRejectedFact,
   LocalSubmissionUnknownFact,
+  StreamHealthFact,
   TerminalEvidenceFact,
 } from './facts.js';
 import type {
@@ -18,7 +36,8 @@ import type {
   AccountViewConfidence,
   AccountWatermarks,
   ChangeSet,
-  ConfidenceState,
+  HydrationNeed,
+  HydrationSubject,
   NormalizedBalance,
   NormalizedFill,
   NormalizedOrder,
@@ -27,10 +46,6 @@ import type {
   PositionLifecycle,
   SnapshotCoverage,
   SnapshotInput,
-  SnapshotSubject,
-  StateSource,
-  SubjectWatermark,
-  HydrationNeed,
 } from './types.js';
 import { copyScope, createScopeKey, isSameScope } from './utils.js';
 
@@ -138,6 +153,9 @@ export class ExchangeAccountStateStore {
       [confidenceKeyForSubject(input.subject)]:
         changeSet.rowsStale > 0 ? 'stale' : confidenceFromSource(input.source),
     };
+    const hydrationNeedsCleared = isHydratingSnapshotSource(input.source)
+      ? clearHydrationNeedsForSubject(state, input.subject)
+      : 0;
 
     changeSet.confidenceChanged = !isSameConfidence(
       confidenceBefore,
@@ -149,7 +167,54 @@ export class ExchangeAccountStateStore {
       !isSameWatermark(
         watermarksBefore[input.subject],
         state.watermarks[input.subject],
-      );
+      ) ||
+      hydrationNeedsCleared > 0;
+
+    return changeSet;
+  }
+
+  /**
+   * Record private-stream health without owning the stream connection itself.
+   *
+   * Gaps, reconnects, disconnects, and listen-key expiry mark account subjects
+   * stale and request hydration. A clean connection only updates stream
+   * confidence/watermark.
+   */
+  applyStreamHealthFact(input: StreamHealthFact): ChangeSet {
+    const state = this.getOrCreateScopeState(input.scope);
+    const changeSet = createEmptyChangeSet(input.scope);
+    const confidenceBefore = state.confidence;
+    const watermarksBefore = state.watermarks;
+
+    state.confidence = confidenceFromStreamHealth(
+      state.confidence,
+      input.status,
+    );
+    state.watermarks = {
+      ...state.watermarks,
+      stream: createStreamWatermark(input),
+    };
+
+    let hydrationNeedsChanged = false;
+    for (const need of getStreamHealthHydrationNeeds(input)) {
+      hydrationNeedsChanged =
+        addHydrationNeed(state, need) || hydrationNeedsChanged;
+    }
+
+    const warning = getStreamHealthWarning(input);
+    if (warning) {
+      changeSet.warnings.push(warning);
+    }
+
+    changeSet.confidenceChanged = !isSameConfidence(
+      confidenceBefore,
+      state.confidence,
+    );
+    changeSet.changed =
+      changeSet.confidenceChanged ||
+      !isSameWatermark(watermarksBefore.stream, state.watermarks.stream) ||
+      hydrationNeedsChanged ||
+      changeSet.warnings.length > 0;
 
     return changeSet;
   }
@@ -369,11 +434,11 @@ export class ExchangeAccountStateStore {
    */
   getHydrationNeeds(scope: AccountScope): HydrationNeed[] {
     const state = this.getScopeState(scope);
-    if (!state) {
-      return [];
-    }
-
-    return Array.from(state.hydrationNeeds.values()).map(cloneHydrationNeed);
+    return getHydrationNeedsForConfidence(
+      scope,
+      state?.confidence ?? createInitialConfidence(),
+      state ? Array.from(state.hydrationNeeds.values()) : [],
+    );
   }
 
   /**
@@ -743,15 +808,32 @@ function identityFromClientId(clientId: string | undefined): OrderIdentity {
  * Store a hydration need by subject/reason so repeated unknown results update
  * the request instead of creating duplicate scheduler work.
  */
-function addHydrationNeed(state: ScopeState, need: HydrationNeed): void {
-  state.hydrationNeeds.set(getHydrationNeedKey(need), cloneHydrationNeed(need));
+function addHydrationNeed(state: ScopeState, need: HydrationNeed): boolean {
+  const key = getHydrationNeedKey(need);
+  const cloned = cloneHydrationNeed(need);
+  const existing = state.hydrationNeeds.get(key);
+  state.hydrationNeeds.set(key, cloned);
+
+  return JSON.stringify(existing) !== JSON.stringify(cloned);
 }
 
 /**
- * Stable key for a hydration need within one account scope.
+ * Clear explicit hydration needs after an authoritative snapshot has satisfied
+ * that subject's pending scheduler work.
  */
-function getHydrationNeedKey(need: HydrationNeed): string {
-  return `${need.subject}:${need.reason}`;
+function clearHydrationNeedsForSubject(
+  state: ScopeState,
+  subject: HydrationSubject,
+): number {
+  let cleared = 0;
+  for (const [key, need] of Array.from(state.hydrationNeeds.entries())) {
+    if (need.subject === subject) {
+      state.hydrationNeeds.delete(key);
+      cleared++;
+    }
+  }
+
+  return cleared;
 }
 
 /**
@@ -809,149 +891,6 @@ function createEmptyChangeSet(scope: AccountScope): ChangeSet {
     warnings: [],
     invariantViolations: [],
   };
-}
-
-/**
- * New scopes start untrusted until the parent app supplies snapshots/events.
- */
-function createInitialConfidence(): AccountViewConfidence {
-  return {
-    positions: 'unknown',
-    openOrders: 'unknown',
-    balances: 'unknown',
-    fills: 'unknown',
-  };
-}
-
-/**
- * Convert snapshot metadata into the compact watermark exposed on account views.
- */
-function createWatermark(input: SnapshotInput<unknown>): SubjectWatermark {
-  const watermark: SubjectWatermark = {
-    source: input.source,
-    asOfMs: input.asOfMs,
-  };
-
-  if (input.provenance?.receivedAtMs !== undefined) {
-    watermark.receivedAtMs = input.provenance.receivedAtMs;
-  }
-  if (input.provenance?.snapshotId !== undefined) {
-    watermark.snapshotId = input.provenance.snapshotId;
-  }
-  if (input.provenance?.eventId !== undefined) {
-    watermark.eventId = input.provenance.eventId;
-  }
-  if (input.provenance?.sequence !== undefined) {
-    watermark.sequence = input.provenance.sequence;
-  }
-
-  return watermark;
-}
-
-/**
- * Map snapshot subjects onto the corresponding confidence slot.
- */
-function confidenceKeyForSubject(
-  subject: SnapshotSubject,
-): keyof AccountViewConfidence {
-  switch (subject) {
-    case 'positions':
-      return 'positions';
-    case 'openOrders':
-      return 'openOrders';
-    case 'balances':
-      return 'balances';
-    case 'fills':
-      return 'fills';
-    case 'filters':
-      return 'filters';
-  }
-}
-
-/**
- * Initial confidence derived from source type. Later phases will refine this
- * with stream/REST combination rules, TTLs, and conflict handling.
- */
-function confidenceFromSource(source: StateSource): ConfidenceState {
-  switch (source) {
-    case 'ws':
-      return 'stream_only';
-    case 'local':
-    case 'manual':
-      return 'local_only';
-    case 'rest':
-    case 'replay':
-    case 'test':
-      return 'rest_hydrated';
-  }
-}
-
-/**
- * Produce coarse hydration reasons from current confidence and stale rows.
- *
- * This is deliberately simple in Phase 2; it gives callers a useful signal
- * without implementing the full hydration scheduler planned for later phases.
- */
-function getHydrationReasons(
-  confidence: AccountViewConfidence,
-  openOrders: NormalizedOrder[],
-  hydrationNeeds: HydrationNeed[],
-): string[] {
-  const reasons: string[] = [];
-  for (const subject of [
-    'positions',
-    'openOrders',
-    'balances',
-    'fills',
-  ] as const) {
-    const value = confidence[subject];
-    if (value === 'unknown') {
-      reasons.push(`${subject}_unknown`);
-    } else if (value === 'stale') {
-      reasons.push(`${subject}_stale`);
-    } else if (value === 'conflicted') {
-      reasons.push(`${subject}_conflicted`);
-    } else if (value === 'paused') {
-      reasons.push(`${subject}_paused`);
-    }
-  }
-
-  if (openOrders.some((order) => order.status === 'stale')) {
-    reasons.push('openOrders_stale');
-  }
-  for (const need of hydrationNeeds) {
-    reasons.push(`${need.subject}_${need.reason}`);
-  }
-
-  return Array.from(new Set(reasons));
-}
-
-/**
- * Compare confidence slots structurally without caring about object identity.
- */
-function isSameConfidence(
-  a: AccountViewConfidence,
-  b: AccountViewConfidence,
-): boolean {
-  return (
-    a.positions === b.positions &&
-    a.openOrders === b.openOrders &&
-    a.balances === b.balances &&
-    a.fills === b.fills &&
-    a.filters === b.filters &&
-    a.stream === b.stream
-  );
-}
-
-/**
- * Compare watermarks by value so repeated identical snapshots can be no-op
- * change sets.
- */
-function isSameWatermark(
-  a: SubjectWatermark | undefined,
-  b: SubjectWatermark | undefined,
-): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /**
@@ -1125,16 +1064,6 @@ function cloneFill(fill: NormalizedFill): NormalizedFill {
  */
 function cloneLifecycle(lifecycle: PositionLifecycle): PositionLifecycle {
   return { ...lifecycle };
-}
-
-/**
- * Clone hydration needs before exposing them to the scheduler.
- */
-function cloneHydrationNeed(need: HydrationNeed): HydrationNeed {
-  return {
-    ...need,
-    scope: copyScope(need.scope),
-  };
 }
 
 /**
