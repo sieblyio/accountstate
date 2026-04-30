@@ -1,16 +1,18 @@
 import type {
-  AccountFact,
   AccountScope,
-  AccountView,
   ChangeSet,
-  HydrationNeed,
+  SyncRequest,
   ManagedOrderParser,
   NormalizedOrder,
   NormalizedPosition,
-  OrderComparisonPolicy,
-  RestSnapshotFact,
   StateInvariant,
 } from '../../src/index';
+import type {
+  AccountFact,
+  AccountView,
+  OrderComparisonPolicy,
+  RestSnapshotFact,
+} from '../../src/core';
 import {
   assertDecimalString,
   isDecimalString,
@@ -126,7 +128,7 @@ describe('core type contracts', () => {
     ]);
   });
 
-  it('allows account views, change sets, hydration needs, and plugin contracts to compile together', () => {
+  it('allows account views, change sets, sync requests, and plugin contracts to compile together', () => {
     const position = normalizedPosition();
     const order = normalizedOrder();
 
@@ -160,9 +162,9 @@ describe('core type contracts', () => {
         },
       ],
       confidence: {
-        positions: 'rest_hydrated',
+        positions: 'synced',
         openOrders: 'rest_and_stream',
-        balances: 'rest_hydrated',
+        balances: 'synced',
         fills: 'unknown',
       },
       watermarks: {
@@ -171,11 +173,11 @@ describe('core type contracts', () => {
           asOfMs: 1_700_000_000_000,
         },
       },
-      needsHydration: false,
-      hydrationReasons: [],
+      needsSync: false,
+      syncReasons: [],
     };
 
-    const hydrationNeed: HydrationNeed = {
+    const syncRequest: SyncRequest = {
       scope,
       subject: 'openOrders',
       reason: 'startup',
@@ -192,7 +194,6 @@ describe('core type contracts', () => {
       confidenceChanged: true,
       lifecycleChanges: [],
       warnings: [],
-      invariantViolations: [],
     };
 
     const parser: ManagedOrderParser = {
@@ -208,10 +209,10 @@ describe('core type contracts', () => {
         return candidateView.openOrders
           .filter((candidateOrder) => !candidateOrder.symbol)
           .map((candidateOrder) => ({
-            name: 'no_open_order_without_symbol',
-            severity: 'error',
-            scope: candidateOrder,
             message: 'Open order is missing a symbol.',
+            context: {
+              customClientOrderId: candidateOrder.customClientOrderId,
+            },
           }));
       },
     };
@@ -232,7 +233,7 @@ describe('core type contracts', () => {
     };
 
     expect(view.positions).toEqual([position]);
-    expect(hydrationNeed.subject).toBe('openOrders');
+    expect(syncRequest.subject).toBe('openOrders');
     expect(changeSet.changed).toBe(true);
     expect(parser.parse(order)).toEqual(order.metadata);
     expect(invariant.check(view)).toEqual([]);

@@ -1,4 +1,5 @@
 import type {
+  AccountScope,
   AccountView,
   InvariantViolation,
   ManagedOrderMetadata,
@@ -9,10 +10,25 @@ export interface ManagedOrderParser {
   parse(order: NormalizedOrder): ManagedOrderMetadata | undefined;
 }
 
+/**
+ * One custom invariant result. Missing name, severity, or scope values are
+ * filled from the registered invariant and checked account view.
+ */
+export interface StateInvariantResult {
+  message: string;
+  name?: string;
+  severity?: InvariantViolation['severity'];
+  scope?: AccountScope;
+  context?: Record<string, unknown>;
+}
+
+/**
+ * Project-specific account-state health check.
+ */
 export interface StateInvariant {
   name: string;
-  severity: 'error' | 'warn';
-  check(view: AccountView): InvariantViolation[];
+  severity?: InvariantViolation['severity'];
+  check(view: AccountView): StateInvariantResult[];
 }
 
 export interface ComparisonContext {

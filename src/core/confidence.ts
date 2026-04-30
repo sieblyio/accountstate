@@ -3,9 +3,9 @@ import type {
   AccountScope,
   AccountViewConfidence,
   ConfidenceState,
-  HydrationNeed,
-  HydrationReason,
-  HydrationSubject,
+  SyncRequest,
+  SyncReason,
+  SyncSubject,
   NormalizedOrder,
   SnapshotInput,
   SnapshotSubject,
@@ -15,12 +15,12 @@ import type {
 } from './types.js';
 import { copyScope } from './utils.js';
 
-const ACCOUNT_HYDRATION_SUBJECTS = [
+const ACCOUNT_SYNC_SUBJECTS = [
   'positions',
   'openOrders',
   'balances',
   'fills',
-] as const satisfies readonly HydrationSubject[];
+] as const satisfies readonly SyncSubject[];
 
 /**
  * New scopes start untrusted until the parent app supplies snapshots/events.
@@ -89,14 +89,14 @@ export function confidenceFromSource(source: StateSource): ConfidenceState {
     case 'rest':
     case 'replay':
     case 'test':
-      return 'rest_hydrated';
+      return 'synced';
   }
 }
 
 /**
- * Return true when a snapshot source should satisfy pending hydration work.
+ * Return true when a snapshot source should satisfy pending sync work.
  */
-export function isHydratingSnapshotSource(source: StateSource): boolean {
+export function isSyncingSnapshotSource(source: StateSource): boolean {
   return source === 'rest' || source === 'replay' || source === 'test';
 }
 
@@ -118,24 +118,23 @@ export function confidenceFromStreamHealth(
       return markAccountSubjectsStale(next);
     case 'disconnected':
     case 'gap':
-    case 'expired':
       next.stream = 'stale';
       return markAccountSubjectsStale(next);
   }
 }
 
 /**
- * Convert stream-health facts that imply missed events into hydration requests.
+ * Convert stream-health facts that imply missed events into sync requests.
  */
-export function getStreamHealthHydrationNeeds(
+export function getStreamHealthSyncRequests(
   input: StreamHealthFact,
-): HydrationNeed[] {
-  const plan = getStreamHealthHydrationPlan(input.status);
+): SyncRequest[] {
+  const plan = getStreamHealthSyncPlan(input.status);
   if (!plan) {
     return [];
   }
 
-  return ACCOUNT_HYDRATION_SUBJECTS.map((subject) => ({
+  return ACCOUNT_SYNC_SUBJECTS.map((subject) => ({
     scope: copyScope(input.scope),
     subject,
     reason: plan.reason,
@@ -157,40 +156,34 @@ export function getStreamHealthWarning(
       return createStreamWarning(
         input,
         'stream_reconnected',
-        'Private stream reconnected; account state needs hydration.',
+        'Private stream reconnected; account state needs sync.',
       );
     case 'disconnected':
       return createStreamWarning(
         input,
         'stream_disconnected',
-        'Private stream disconnected; account state needs hydration.',
+        'Private stream disconnected; account state needs sync.',
       );
     case 'gap':
       return createStreamWarning(
         input,
         'stream_gap',
-        'Private stream reported a gap; account state needs hydration.',
-      );
-    case 'expired':
-      return createStreamWarning(
-        input,
-        'listen_key_expired',
-        'Private stream listen key expired; account state needs hydration.',
+        'Private stream reported a gap; account state needs sync.',
       );
   }
 }
 
 /**
- * Produce coarse hydration reasons from confidence, stale rows, and explicit
+ * Produce coarse sync reasons from confidence, stale rows, and explicit
  * scheduler requests.
  */
-export function getHydrationReasons(
+export function getSyncReasons(
   confidence: AccountViewConfidence,
   openOrders: NormalizedOrder[],
-  hydrationNeeds: HydrationNeed[],
+  syncRequests: SyncRequest[],
 ): string[] {
   const reasons: string[] = [];
-  for (const subject of ACCOUNT_HYDRATION_SUBJECTS) {
+  for (const subject of ACCOUNT_SYNC_SUBJECTS) {
     addConfidenceReason(reasons, subject, confidence[subject]);
   }
   if (confidence.filters) {
@@ -203,55 +196,61 @@ export function getHydrationReasons(
   if (openOrders.some((order) => order.status === 'stale')) {
     reasons.push('openOrders_stale');
   }
-  for (const need of hydrationNeeds) {
-    reasons.push(`${need.subject}_${need.reason}`);
+  for (const request of syncRequests) {
+    reasons.push(`${request.subject}_${request.reason}`);
   }
 
   return Array.from(new Set(reasons));
 }
 
 /**
- * Combine explicit scheduler requests with startup needs for unknown subjects.
+ * Combine explicit scheduler requests with fallback requests for subjects whose
+ * confidence says a REST refresh can reasonably help.
  */
-export function getHydrationNeedsForConfidence(
+export function getSyncRequestsForConfidence(
   scope: AccountScope,
   confidence: AccountViewConfidence,
-  explicitNeeds: HydrationNeed[],
-): HydrationNeed[] {
-  const needs = explicitNeeds.map(cloneHydrationNeed);
-  const subjectsWithExplicitNeeds = new Set(needs.map((need) => need.subject));
+  explicitRequests: SyncRequest[],
+): SyncRequest[] {
+  const requests = explicitRequests.map(cloneSyncRequest);
+  const subjectsWithExplicitRequests = new Set(
+    requests.map((request) => request.subject),
+  );
 
-  for (const subject of ACCOUNT_HYDRATION_SUBJECTS) {
-    if (
-      confidence[subject] === 'unknown' &&
-      !subjectsWithExplicitNeeds.has(subject)
-    ) {
-      needs.push({
-        scope: copyScope(scope),
-        subject,
-        reason: 'startup',
-        priority: 'immediate',
-      });
+  for (const subject of ACCOUNT_SYNC_SUBJECTS) {
+    if (subjectsWithExplicitRequests.has(subject)) {
+      continue;
+    }
+
+    const confidenceState = confidence[subject];
+    if (confidenceState === 'unknown') {
+      requests.push(createFallbackSyncRequest(scope, subject, 'startup'));
+    } else if (confidenceState === 'stale') {
+      requests.push(createFallbackSyncRequest(scope, subject, 'stale_state'));
+    } else if (confidenceState === 'conflicted') {
+      requests.push(
+        createFallbackSyncRequest(scope, subject, 'conflicting_state'),
+      );
     }
   }
 
-  return dedupeHydrationNeeds(needs);
+  return dedupeSyncRequests(requests);
 }
 
 /**
- * Stable key for a hydration need within one account scope.
+ * Stable key for a sync request within one account scope.
  */
-export function getHydrationNeedKey(need: HydrationNeed): string {
-  return `${need.subject}:${need.reason}`;
+export function getSyncRequestKey(request: SyncRequest): string {
+  return `${request.subject}:${request.reason}`;
 }
 
 /**
- * Clone hydration needs before exposing them to callers or internal maps.
+ * Clone sync requests before exposing them to callers or internal maps.
  */
-export function cloneHydrationNeed(need: HydrationNeed): HydrationNeed {
+export function cloneSyncRequest(request: SyncRequest): SyncRequest {
   return {
-    ...need,
-    scope: copyScope(need.scope),
+    ...request,
+    scope: copyScope(request.scope),
   };
 }
 
@@ -313,17 +312,17 @@ function markAccountSubjectsStale(
   confidence: AccountViewConfidence,
 ): AccountViewConfidence {
   const next: AccountViewConfidence = { ...confidence };
-  for (const subject of ACCOUNT_HYDRATION_SUBJECTS) {
+  for (const subject of ACCOUNT_SYNC_SUBJECTS) {
     next[subject] = 'stale';
   }
 
   return next;
 }
 
-function getStreamHealthHydrationPlan(status: StreamHealthFact['status']):
+function getStreamHealthSyncPlan(status: StreamHealthFact['status']):
   | {
-      reason: HydrationReason;
-      priority: HydrationNeed['priority'];
+      reason: SyncReason;
+      priority: SyncRequest['priority'];
     }
   | undefined {
   switch (status) {
@@ -334,9 +333,21 @@ function getStreamHealthHydrationPlan(status: StreamHealthFact['status']):
     case 'disconnected':
     case 'gap':
       return { reason: 'stream_gap', priority: 'immediate' };
-    case 'expired':
-      return { reason: 'ttl_expired', priority: 'immediate' };
   }
+}
+
+function createFallbackSyncRequest(
+  scope: AccountScope,
+  subject: SyncSubject,
+  reason: SyncReason,
+): SyncRequest {
+  return {
+    scope: copyScope(scope),
+    subject,
+    reason,
+    priority:
+      subject === 'fills' && reason === 'startup' ? 'background' : 'immediate',
+  };
 }
 
 function createStreamWarning(
@@ -371,10 +382,10 @@ function addConfidenceReason(
   }
 }
 
-function dedupeHydrationNeeds(needs: HydrationNeed[]): HydrationNeed[] {
-  const deduped = new Map<string, HydrationNeed>();
-  for (const need of needs) {
-    deduped.set(getHydrationNeedKey(need), cloneHydrationNeed(need));
+function dedupeSyncRequests(requests: SyncRequest[]): SyncRequest[] {
+  const deduped = new Map<string, SyncRequest>();
+  for (const request of requests) {
+    deduped.set(getSyncRequestKey(request), cloneSyncRequest(request));
   }
 
   return Array.from(deduped.values());

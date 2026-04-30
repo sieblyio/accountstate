@@ -18,7 +18,7 @@ A TypeScript utility class for managing cryptocurrency exchange account state in
 - [Best Practices](#best-practices)
 - [Quick Start](#quick-start)
 - [Modern Exchange Account API](#modern-exchange-account-api)
-- [Core API](#core-api)
+- [Lightweight AccountStateStore API](#lightweight-accountstatestore-api)
   - [Balance Management](#balance-management)
   - [Position Management](#position-management)
   - [Order Management](#order-management)
@@ -61,61 +61,6 @@ yarn add accountstate
 ## Quick Start
 
 ```typescript
-import { AccountStateStore } from 'accountstate';
-
-// Create a new account state store
-const accountState = new AccountStateStore();
-
-// Set wallet balance
-accountState.setWalletBalance(10000);
-
-// Track a position
-accountState.setActivePosition('BTCUSDT', 'LONG', {
-  symbol: 'BTCUSDT',
-  timestampMs: Date.now(),
-  positionSide: 'LONG',
-  orderPositionSide: 'LONG',
-  positionPrice: 45000,
-  assetQty: 0.1,
-  value: 4500,
-  valueUpnl: 0,
-  liquidationPrice: 40000,
-  marginValue: 4500,
-});
-
-// Track an order
-accountState.upsertActiveOrder({
-  exchangeOrderId: '12345',
-  customOrderId: 'my-order-1',
-  symbol: 'BTCUSDT',
-  orderSide: 'BUY',
-  orderType: 'LIMIT',
-  positionSide: 'LONG',
-  status: 'NEW',
-  price: 44000,
-  originalQuantity: 0.05,
-  executedQuantity: 0,
-  averagePrice: 0,
-  createdAtMs: Date.now(),
-  updatedAtMs: Date.now(),
-  isreduceOnly: false,
-});
-
-// Get account summary
-const summary = accountState.getSessionSummary(10000);
-console.log('Account Summary:', summary);
-```
-
-Or, check examples in the [./examples](./examples) folder.
-
-## Modern Exchange Account API
-
-For new exchange integrations, use `ExchangeAccountStateStore`. It keeps the
-hard reconciliation rules inside the library while exposing methods that match
-the workflow most trading apps already have: REST sync, private stream updates,
-order submission results, and a readiness check before planning.
-
-```typescript
 import { ExchangeAccountStateStore, type AccountScope } from 'accountstate';
 
 const scope: AccountScope = {
@@ -127,7 +72,7 @@ const scope: AccountScope = {
 
 const state = new ExchangeAccountStateStore();
 
-// Initial and periodic REST hydration. Your app owns the REST client and maps
+// Initial and periodic REST sync. Your app owns the REST client and maps
 // exchange payloads into normalized rows.
 state.syncPositions(scope, normalizedPositions);
 state.syncOpenOrders(scope, normalizedOpenOrders);
@@ -137,7 +82,7 @@ state.syncBalances(scope, normalizedBalances);
 state.onOrderUpdate(scope, normalizedOrderUpdate);
 state.onPositionUpdate(scope, normalizedPositionUpdate);
 
-// Stream health signals tell accountstate when local state needs hydration.
+// Stream health signals tell accountstate when local state needs sync.
 state.streamReconnected(scope, { reason: 'socket restarted' });
 
 // After submitting an order, record exactly one outcome.
@@ -151,15 +96,27 @@ state.orderAccepted({
 const account = state.getAccount(scope);
 
 if (!account.readyToTrade) {
-  for (const request of account.hydrationRequests) {
+  for (const request of account.syncRequests) {
     // Fetch the requested subject from REST, then call the matching sync method.
-    await hydrateFromRest(request);
+    await syncFromRest(request);
   }
   return;
 }
 
 planner.plan(account);
 ```
+
+`ExchangeAccountStateStore` is the recommended store for new exchange
+integrations. It keeps the hard reconciliation rules inside the library while
+matching the workflow most trading apps already have: REST sync, private stream
+updates, order submission results, and a readiness check before planning.
+Positions, open orders, and balances are required for `readyToTrade`; fills are
+background sync unless you call `getAccount(scope, { requireFills: true })`.
+
+For the original lightweight cache API, see
+[Lightweight AccountStateStore API](#lightweight-accountstatestore-api).
+
+## Modern Exchange Account API
 
 Lifecycles are tracked automatically from normalized positions. They give
 strategy-owned order managers a stable `lifecycleEpoch` and
@@ -183,6 +140,16 @@ state.registerManagedOrderParser({
 });
 ```
 
+Use invariants as a read-only health check in tests, startup checks, or before
+planner passes:
+
+```typescript
+const violations = state.checkInvariants(scope);
+if (violations.some((violation) => violation.severity === 'error')) {
+  throw new Error('Account state is not safe to plan from');
+}
+```
+
 When using exchange adapters, the intended shape is even simpler: the adapter
 normalizes raw REST responses or WebSocket events, and `ingest()` applies the
 resulting account facts in order.
@@ -195,13 +162,32 @@ const orders = state.getOpenOrders(scope);
 const order = state.getOrder(scope, { customClientOrderId: 'my-client-id' });
 ```
 
-`ingest`, `applyFact`, `applyFacts`, `getHydrationNeeds`, and
-`getAccountView` are the public advanced escape hatches for fixtures, replay,
-and adapter authors. Lower-level reducer primitives such as snapshots,
-stream-health facts, and terminal marking are internal so application code is
-guided through the exchange-account methods above.
+`ingest`, `getSyncRequests`, and `getAccountView` are advanced escape hatches
+for fixtures, replay, and adapter authors. Lower-level reducer primitives such
+as snapshots, stream-health facts, and terminal marking are internal so
+application code is guided through the exchange-account methods above.
+If you are writing an adapter or fixture runner and need fact/reducer types,
+import them from `accountstate/core` instead of the package root.
 
-## Core API
+Adapter authors can also run the generic conformance pack before wiring an
+exchange-specific adapter:
+
+```typescript
+import {
+  defaultAccountStateFixtures,
+  runAccountStateFixtures,
+} from 'accountstate/conformance';
+
+const results = runAccountStateFixtures({
+  fixtures: defaultAccountStateFixtures,
+});
+
+if (results.some((result) => !result.passed)) {
+  throw new Error('Account-state conformance failed');
+}
+```
+
+## Lightweight AccountStateStore API
 
 ### Balance Management
 
@@ -388,7 +374,7 @@ export class PersistedAccountStateStore extends AccountStateStore<EnginePosition
     this.startPersistPositionMetadataTimer();
   }
 
-  /** Call this during bootstrap to ensure we've rehydrated before resuming */
+  /** Call this during bootstrap to ensure we've resynced before resuming */
   async restorePersistedData(): Promise<void> {
     // Query persisted position metadata from redis
     const storedDataResult = await this.redisAPI.fetchJSONForAccountKey(

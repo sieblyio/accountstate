@@ -1,15 +1,29 @@
-export * from './lib/types/events.js';
-export * from './lib/types/position.js';
-export * from './util/position.math.js';
-export * from './util/position.types.js';
-export * from './util/reporting.js';
-export * from './AccountStateStore.js';
-export * from './core/ExchangeAccountStateStore.js';
+export { ExchangeAccountStateStore } from './ExchangeAccountStateStore.js';
+
+export type {
+  AccountFact,
+  LocalOrderCancelledFact,
+  LocalSubmissionAcceptedFact,
+  LocalSubmissionRejectedFact,
+  LocalSubmissionUnknownFact,
+  NormalizedPrivateEvent,
+  NormalizedSubmissionError,
+  PrivateStreamEventFact,
+  RestSnapshotFact,
+  SnapshotRow,
+  StreamHealthFact,
+  SyncGapFact,
+  TerminalEvidenceFact,
+} from './facts.js';
 
 export type {
   AccountId,
   AccountScope,
+  AccountView,
+  AccountViewConfidence,
+  AccountWatermarks,
   ChangeSet,
+  ConfidenceState,
   DecimalString,
   ExchangeId,
   InvariantViolation,
@@ -27,25 +41,29 @@ export type {
   OrderStrategySide,
   PositionLifecycle,
   ProductId,
+  Provenance,
+  SnapshotInput,
+  SnapshotSubject,
+  StateSource,
+  StateWarning,
+  StrategySide,
+  SubjectWatermark,
   SyncCoverage,
   SyncMode,
   SyncReason,
   SyncRequest,
   SyncSubject,
-  StateSource,
-  StateWarning,
-  StrategySide,
   TerminalReason,
   TimestampMs,
-} from './core/types.js';
+} from './types.js';
 
 export type {
-  OrderCancelledInput,
   ExchangeAccount,
   ExchangeAccountReadinessOptions,
   FillFilter,
   OpenOrderFilter,
   OrderAcceptedInput,
+  OrderCancelledInput,
   OrderNotFoundInput,
   OrderRejectedInput,
   OrderStatusUnknownInput,
@@ -54,17 +72,20 @@ export type {
   StreamHealthOptions,
   StreamUpdateOptions,
   SyncRowsOptions,
-} from './core/exchangeAccount.js';
+} from './exchangeAccount.js';
 
 export type {
+  ComparisonContext,
+  ComparisonResult,
   ManagedOrderParser,
+  OrderComparisonPolicy,
   StateInvariant,
   StateInvariantResult,
-} from './core/plugins.js';
+} from './plugins.js';
 
-export type { LifecycleFilter, LifecycleIdentity } from './core/lifecycle.js';
+export type { LifecycleFilter, LifecycleIdentity } from './lifecycle.js';
 
 export type {
   CheckInvariantsOptions,
   InvariantRuntimeOptions,
-} from './core/invariants.js';
+} from './invariants.js';

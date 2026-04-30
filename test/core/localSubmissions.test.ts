@@ -106,7 +106,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     ]);
   });
 
-  it('rejected submissions remove matching provisional orders and request hydration', () => {
+  it('rejected submissions remove matching provisional orders and request sync', () => {
     const state = new ExchangeAccountStateStore();
 
     state.orderAccepted({
@@ -138,8 +138,8 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     ]);
     expect(state.getAccountView(scope).openOrders).toEqual([]);
     expect(state.getAccountView(scope).confidence.openOrders).toBe('stale');
-    const hydrationNeeds = state.getHydrationNeeds(scope);
-    expect(hydrationNeeds).toEqual(
+    const syncRequests = state.getSyncRequests(scope);
+    expect(syncRequests).toEqual(
       expect.arrayContaining([
         {
           scope,
@@ -150,31 +150,31 @@ describe('ExchangeAccountStateStore local submission facts', () => {
         },
       ]),
     );
-    expect(hydrationNeeds).toHaveLength(4);
-    expect(hydrationNeeds).toContainEqual({
+    expect(syncRequests).toHaveLength(4);
+    expect(syncRequests).toContainEqual({
       scope,
       subject: 'positions',
       reason: 'startup',
       priority: 'immediate',
     });
-    expect(hydrationNeeds).toContainEqual({
+    expect(syncRequests).toContainEqual({
       scope,
       subject: 'balances',
       reason: 'startup',
       priority: 'immediate',
     });
-    expect(hydrationNeeds).toContainEqual({
+    expect(syncRequests).toContainEqual({
       scope,
       subject: 'fills',
       reason: 'startup',
-      priority: 'immediate',
+      priority: 'background',
     });
-    expect(state.getAccountView(scope).hydrationReasons).toContain(
+    expect(state.getAccountView(scope).syncReasons).toContain(
       'openOrders_conflicting_state',
     );
   });
 
-  it('unknown submissions keep provisional orders visible and request immediate hydration', () => {
+  it('unknown submissions keep provisional orders visible and request immediate sync', () => {
     const state = new ExchangeAccountStateStore();
 
     state.orderAccepted({
@@ -208,8 +208,8 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     expect(state.getAccountView(scope).openOrders[0].status).toBe(
       'provisional',
     );
-    const hydrationNeeds = state.getHydrationNeeds(scope);
-    expect(hydrationNeeds).toEqual(
+    const syncRequests = state.getSyncRequests(scope);
+    expect(syncRequests).toEqual(
       expect.arrayContaining([
         {
           scope,
@@ -220,8 +220,8 @@ describe('ExchangeAccountStateStore local submission facts', () => {
         },
       ]),
     );
-    expect(hydrationNeeds).toHaveLength(4);
-    expect(state.getAccountView(scope).hydrationReasons).toContain(
+    expect(syncRequests).toHaveLength(4);
+    expect(state.getAccountView(scope).syncReasons).toContain(
       'openOrders_submission_unknown',
     );
   });
@@ -244,7 +244,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     const changeSet = state.orderNotFound({
       scope,
       identity: { customClientOrderId: 'client-1001' },
-      reason: 'unknown_order_cancel_absent_from_hydration',
+      reason: 'order_not_found',
       atMs: 2,
     });
 
@@ -305,7 +305,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     });
   });
 
-  it('hydration needs are cloned before being returned', () => {
+  it('sync requests are cloned before being returned', () => {
     const state = new ExchangeAccountStateStore();
 
     state.orderStatusUnknown({
@@ -318,9 +318,9 @@ describe('ExchangeAccountStateStore local submission facts', () => {
       },
     });
 
-    const needs = state.getHydrationNeeds(scope);
-    needs[0].scope.accountId = 'mutated';
+    const requests = state.getSyncRequests(scope);
+    requests[0].scope.accountId = 'mutated';
 
-    expect(state.getHydrationNeeds(scope)[0].scope.accountId).toBe('primary');
+    expect(state.getSyncRequests(scope)[0].scope.accountId).toBe('primary');
   });
 });

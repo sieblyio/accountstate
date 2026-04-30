@@ -1,12 +1,12 @@
 import { ExchangeAccountStateStore } from '../../src';
 import type {
-  AccountFact,
   AccountScope,
   NormalizedBalance,
   NormalizedFill,
   NormalizedOrder,
   NormalizedPosition,
 } from '../../src';
+import type { AccountFact } from '../../src/core';
 
 const scope: AccountScope = {
   exchange: 'binance',
@@ -83,7 +83,7 @@ function fill(overrides: Partial<NormalizedFill> = {}): NormalizedFill {
   };
 }
 
-function hydrateRequiredSubjects(state: ExchangeAccountStateStore): void {
+function syncRequiredSubjects(state: ExchangeAccountStateStore): void {
   state.syncPositions(scope, [position()], { asOfMs: 1 });
   state.syncOpenOrders(scope, [], { asOfMs: 1 });
   state.syncBalances(scope, [balance()], { asOfMs: 1 });
@@ -182,8 +182,8 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     expect(account.getAccountView(scope)).toEqual(
       reducer.getAccountView(scope),
     );
-    expect(account.getHydrationNeeds(scope)).toEqual(
-      reducer.getHydrationNeeds(scope),
+    expect(account.getSyncRequests(scope)).toEqual(
+      reducer.getSyncRequests(scope),
     );
   });
 
@@ -230,8 +230,8 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     expect(account.getAccountView(scope)).toEqual(
       reducer.getAccountView(scope),
     );
-    expect(account.getHydrationNeeds(scope)).toEqual(
-      reducer.getHydrationNeeds(scope),
+    expect(account.getSyncRequests(scope)).toEqual(
+      reducer.getSyncRequests(scope),
     );
   });
 
@@ -255,10 +255,10 @@ describe('ExchangeAccountStateStore exchange account API', () => {
 
     state.syncOpenOrders(scope, [order()], { asOfMs: 3 });
 
-    const cancelChange = state.cancelAccepted({
+    const cancelChange = state.orderCancelled({
       scope,
       identity: { exchangeOrderId: '1001' },
-      acceptedAtMs: 4,
+      cancelledAtMs: 4,
     });
 
     expect(cancelChange).toMatchObject({
@@ -274,24 +274,29 @@ describe('ExchangeAccountStateStore exchange account API', () => {
 
     const startup = state.getAccount(scope);
     expect(startup.readyToTrade).toBe(false);
-    expect(startup.hydrationRequests.map((need) => need.subject)).toEqual([
+    expect(startup.syncRequests.map((request) => request.subject)).toEqual([
       'positions',
       'openOrders',
       'balances',
       'fills',
     ]);
 
-    hydrateRequiredSubjects(state);
+    syncRequiredSubjects(state);
 
-    const hydrated = state.getAccount(scope);
-    expect(hydrated.readyToTrade).toBe(true);
-    expect(hydrated.canTrustPositions).toBe(true);
-    expect(hydrated.canTrustOpenOrders).toBe(true);
-    expect(hydrated.canTrustBalances).toBe(true);
-    expect(hydrated.canTrustFills).toBe(false);
-    expect(state.getAccount(scope, { requireFills: true }).readyToTrade).toBe(
-      false,
-    );
+    const synced = state.getAccount(scope);
+    expect(synced.readyToTrade).toBe(true);
+    expect(synced.canTrustPositions).toBe(true);
+    expect(synced.canTrustOpenOrders).toBe(true);
+    expect(synced.canTrustBalances).toBe(true);
+    expect(synced.canTrustFills).toBe(false);
+    expect(synced.syncRequests).toEqual([
+      { scope, subject: 'fills', reason: 'startup', priority: 'background' },
+    ]);
+    const requiresFills = state.getAccount(scope, { requireFills: true });
+    expect(requiresFills.readyToTrade).toBe(false);
+    expect(requiresFills.syncRequests).toEqual([
+      { scope, subject: 'fills', reason: 'startup', priority: 'immediate' },
+    ]);
 
     state.syncFills(scope, [fill()], { asOfMs: 2 });
     expect(state.getAccount(scope, { requireFills: true }).readyToTrade).toBe(
@@ -301,7 +306,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     state.streamReconnected(scope, { atMs: 3 });
     const stale = state.getAccount(scope);
     expect(stale.readyToTrade).toBe(false);
-    expect(stale.hydrationRequests).toEqual(
+    expect(stale.syncRequests).toEqual(
       expect.arrayContaining([
         {
           scope,
@@ -371,10 +376,10 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     ).toEqual([btcFill]);
   });
 
-  it('applyFact dispatches supported facts and warns for unsupported planned facts', () => {
+  it('ingest dispatches supported facts and warns for unsupported planned facts', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.applyFact({
+    state.ingest({
       type: 'rest_snapshot',
       scope,
       subject: 'positions',
@@ -383,7 +388,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
       source: 'rest',
       asOfMs: 1,
     });
-    state.applyFact({
+    state.ingest({
       type: 'order_updated',
       scope,
       order: order({ source: 'ws', updatedAtMs: 2 }),
@@ -392,7 +397,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
         receivedAtMs: 2,
       },
     });
-    state.applyFact({
+    state.ingest({
       type: 'stream_health',
       scope,
       status: 'connected',
@@ -405,7 +410,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     ]);
     expect(state.getAccountView(scope).confidence.stream).toBe('stream_only');
 
-    const unsupported = state.applyFact({
+    const unsupported = state.ingest({
       type: 'operator_state',
       scope,
       status: 'paused',

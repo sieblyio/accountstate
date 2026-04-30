@@ -16,6 +16,16 @@
       "import": "./dist/mjs/index.js",
       "require": "./dist/cjs/index.js",
       "types": "./dist/mjs/index.d.ts"
+    },
+    "./core": {
+      "import": "./dist/mjs/core/index.js",
+      "require": "./dist/cjs/core/index.js",
+      "types": "./dist/mjs/core/index.d.ts"
+    },
+    "./conformance": {
+      "import": "./dist/mjs/conformance.js",
+      "require": "./dist/cjs/conformance.js",
+      "types": "./dist/mjs/conformance.d.ts"
     }
   },
   "type": "module",

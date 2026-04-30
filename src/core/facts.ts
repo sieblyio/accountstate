@@ -1,6 +1,6 @@
 import type {
   AccountScope,
-  HydrationSubject,
+  SyncSubject,
   NormalizedBalance,
   NormalizedFill,
   NormalizedOrder,
@@ -56,11 +56,6 @@ export type NormalizedPrivateEvent =
       scope: AccountScope;
       reason: string;
       provenance: Provenance;
-    }
-  | {
-      type: 'listen_key_expired';
-      scope: AccountScope;
-      provenance: Provenance;
     };
 
 export interface NormalizedSubmissionError {
@@ -98,12 +93,12 @@ export interface LocalSubmissionUnknownFact {
   atMs: TimestampMs;
 }
 
-export interface LocalCancelAcceptedFact {
-  type: 'local_cancel_accepted';
+export interface LocalOrderCancelledFact {
+  type: 'local_order_cancelled';
   scope: AccountScope;
   intentId: string;
   target?: OrderIdentity;
-  acceptedAtMs: TimestampMs;
+  cancelledAtMs: TimestampMs;
   responseSummary?: unknown;
 }
 
@@ -115,10 +110,10 @@ export interface TerminalEvidenceFact {
   atMs: TimestampMs;
 }
 
-export interface HydrationGapFact {
-  type: 'hydration_gap';
+export interface SyncGapFact {
+  type: 'sync_gap';
   scope: AccountScope;
-  subject: HydrationSubject;
+  subject: SyncSubject;
   reason: string;
   atMs: TimestampMs;
 }
@@ -126,7 +121,7 @@ export interface HydrationGapFact {
 export interface StreamHealthFact {
   type: 'stream_health';
   scope: AccountScope;
-  status: 'connected' | 'reconnected' | 'disconnected' | 'gap' | 'expired';
+  status: 'connected' | 'reconnected' | 'disconnected' | 'gap';
   reason?: string;
   atMs: TimestampMs;
   provenance?: Provenance;
@@ -146,8 +141,8 @@ export type AccountFact =
   | LocalSubmissionAcceptedFact
   | LocalSubmissionRejectedFact
   | LocalSubmissionUnknownFact
-  | LocalCancelAcceptedFact
+  | LocalOrderCancelledFact
   | TerminalEvidenceFact
-  | HydrationGapFact
+  | SyncGapFact
   | StreamHealthFact
   | OperatorStateFact;

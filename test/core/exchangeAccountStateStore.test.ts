@@ -6,8 +6,8 @@ import type {
   NormalizedFill,
   NormalizedOrder,
   NormalizedPosition,
-  SnapshotInput,
 } from '../../src';
+import type { SnapshotInput } from '../../src/core';
 
 const scope: AccountScope = {
   exchange: 'binance',
@@ -143,8 +143,8 @@ describe('ExchangeAccountStateStore snapshots', () => {
         fills: 'unknown',
       },
       watermarks: {},
-      needsHydration: true,
-      hydrationReasons: [
+      needsSync: true,
+      syncReasons: [
         'positions_unknown',
         'openOrders_unknown',
         'balances_unknown',
@@ -153,7 +153,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
     });
   });
 
-  it('upserts position snapshots and marks position confidence hydrated', () => {
+  it('upserts position snapshots and marks position confidence synced', () => {
     const state = new ExchangeAccountStateStore();
     const btcPosition = position();
 
@@ -177,7 +177,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
 
     const view = state.getAccountView(scope);
     expect(view.positions).toEqual([btcPosition]);
-    expect(view.confidence.positions).toBe('rest_hydrated');
+    expect(view.confidence.positions).toBe('synced');
     expect(view.watermarks.positions).toEqual({
       source: 'rest',
       asOfMs: 1_700_000_000_000,
@@ -464,9 +464,15 @@ describe('ExchangeAccountStateStore snapshots', () => {
       },
     ]);
     expect(state.getAccountView(scope).confidence.openOrders).toBe('stale');
-    expect(state.getAccountView(scope).hydrationReasons).toContain(
+    expect(state.getAccountView(scope).syncReasons).toContain(
       'openOrders_stale',
     );
+    expect(state.getSyncRequests(scope)).toContainEqual({
+      scope,
+      subject: 'openOrders',
+      reason: 'stale_state',
+      priority: 'immediate',
+    });
   });
 
   it('open-order replacement is limited by symbol and kind coverage', () => {

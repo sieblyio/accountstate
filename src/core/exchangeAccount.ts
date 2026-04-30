@@ -10,7 +10,7 @@ import type {
   AccountView,
   ChangeSet,
   ConfidenceState,
-  HydrationNeed,
+  SyncRequest,
   NormalizedBalance,
   NormalizedFill,
   NormalizedOrder,
@@ -18,12 +18,13 @@ import type {
   NormalizedOrderStatus,
   NormalizedPosition,
   OrderIdentity,
+  OrderIdentityFilter,
   OrderOwner,
   PositionLifecycle,
   Provenance,
-  SnapshotCoverage,
+  SyncCoverage,
   SnapshotInput,
-  SnapshotMode,
+  SyncMode,
   SnapshotSubject,
   StateSource,
   StrategySide,
@@ -43,33 +44,99 @@ type SnapshotRowForSubject<TSubject extends SnapshotSubject> =
           ? NormalizedFill
           : never;
 
+/**
+ * Options for applying a current-state snapshot, usually from REST sync.
+ */
 export interface SyncRowsOptions {
-  mode?: SnapshotMode;
+  /**
+   * Replacement semantics for rows absent from the provided snapshot.
+   */
+  mode?: SyncMode;
+  /**
+   * Source label to attach to the snapshot rows and confidence state.
+   */
   source?: StateSource;
+  /**
+   * Exchange or local timestamp that the snapshot represents.
+   */
   asOfMs?: TimestampMs;
-  coverage?: SnapshotCoverage;
+  /**
+   * Optional partial coverage when the snapshot only covers selected symbols.
+   */
+  coverage?: SyncCoverage;
+  /**
+   * Full provenance override when the caller has richer source metadata.
+   */
   provenance?: Provenance;
 }
 
+/**
+ * Metadata for one normalized private-stream row update.
+ */
 export interface StreamUpdateOptions {
+  /**
+   * Local timestamp for the update when no richer provenance is supplied.
+   */
   atMs?: TimestampMs;
+  /**
+   * Time the parent app received the event.
+   */
   receivedAtMs?: TimestampMs;
+  /**
+   * Time reported by the exchange event, if available.
+   */
   exchangeEventTimeMs?: TimestampMs;
+  /**
+   * Exchange or adapter event id used for debugging/replay.
+   */
   eventId?: string;
+  /**
+   * Exchange stream sequence used for debugging/replay.
+   */
   sequence?: string | number;
+  /**
+   * Full provenance override when the caller has already normalized it.
+   */
   provenance?: Provenance;
 }
 
+/**
+ * Metadata for stream health transitions such as reconnects and gaps.
+ */
 export interface StreamHealthOptions {
+  /**
+   * Local timestamp for the health signal.
+   */
   atMs?: TimestampMs;
+  /**
+   * Human-readable reason to surface in warnings and sync requests.
+   */
   reason?: string;
+  /**
+   * Time the parent app observed the health signal.
+   */
   receivedAtMs?: TimestampMs;
+  /**
+   * Time reported by the exchange event, if available.
+   */
   exchangeEventTimeMs?: TimestampMs;
+  /**
+   * Exchange or adapter event id used for debugging/replay.
+   */
   eventId?: string;
+  /**
+   * Exchange stream sequence used for debugging/replay.
+   */
   sequence?: string | number;
+  /**
+   * Full provenance override when the caller has already normalized it.
+   */
   provenance?: Provenance;
 }
 
+/**
+ * Successful order-submission result from the parent exchange client.
+ */
 export interface OrderAcceptedInput {
   scope: AccountScope;
   intentId: string;
@@ -79,6 +146,9 @@ export interface OrderAcceptedInput {
   responseSummary?: unknown;
 }
 
+/**
+ * Rejected order-submission result from the parent exchange client.
+ */
 export interface OrderRejectedInput {
   scope: AccountScope;
   intentId: string;
@@ -87,6 +157,9 @@ export interface OrderRejectedInput {
   rejectedAtMs?: TimestampMs;
 }
 
+/**
+ * Timed-out or indeterminate order-submission result that needs sync.
+ */
 export interface OrderStatusUnknownInput {
   scope: AccountScope;
   intentId: string;
@@ -95,14 +168,20 @@ export interface OrderStatusUnknownInput {
   atMs?: TimestampMs;
 }
 
-export interface CancelAcceptedInput {
+/**
+ * Successful cancel response that proves the target order is no longer open.
+ */
+export interface OrderCancelledInput {
   scope: AccountScope;
   intentId?: string;
   identity: OrderIdentity;
-  acceptedAtMs?: TimestampMs;
+  cancelledAtMs?: TimestampMs;
   responseSummary?: unknown;
 }
 
+/**
+ * Exchange evidence that an order identity is absent from the open-order set.
+ */
 export interface OrderNotFoundInput {
   scope: AccountScope;
   identity: OrderIdentity;
@@ -110,32 +189,50 @@ export interface OrderNotFoundInput {
   atMs?: TimestampMs;
 }
 
+/**
+ * Common filters for reading normalized positions.
+ */
 export interface PositionFilter {
   symbol?: string;
   exchangePositionSide?: string;
   strategySide?: StrategySide;
 }
 
+/**
+ * Identity for reading one position without guessing across hedge-mode sides.
+ */
 export interface PositionIdentity extends PositionFilter {
   symbol: string;
 }
 
-export interface OpenOrderFilter extends OrderIdentity {
+/**
+ * Common filters for reading normalized open orders.
+ */
+export interface OpenOrderFilter extends OrderIdentityFilter {
   symbol?: string;
   kind?: NormalizedOrderKind;
   status?: NormalizedOrderStatus;
   owner?: OrderOwner;
 }
 
-export interface FillFilter extends OrderIdentity {
+/**
+ * Common filters for reading normalized fills/trades.
+ */
+export interface FillFilter extends OrderIdentityFilter {
   symbol?: string;
   exchangeTradeId?: string;
 }
 
+/**
+ * Options controlling which subjects block `readyToTrade`.
+ */
 export interface ExchangeAccountReadinessOptions {
   requireFills?: boolean;
 }
 
+/**
+ * Account read model for planning and sync decisions.
+ */
 export interface ExchangeAccount {
   scope: AccountScope;
   positions: NormalizedPosition[];
@@ -148,9 +245,8 @@ export interface ExchangeAccount {
   canTrustOpenOrders: boolean;
   canTrustBalances: boolean;
   canTrustFills: boolean;
-  hydrationRequests: HydrationNeed[];
-  hydrationReasons: string[];
-  raw: AccountView;
+  syncRequests: SyncRequest[];
+  syncReasons: string[];
 }
 
 /**
@@ -226,7 +322,7 @@ export function createStreamHealthFact(
 }
 
 /**
- * Convert the developer-facing accepted-order shape into the reducer fact.
+ * Convert accepted-order input into the reducer fact.
  */
 export function createOrderAcceptedFact(
   input: OrderAcceptedInput,
@@ -244,7 +340,7 @@ export function createOrderAcceptedFact(
 }
 
 /**
- * Convert the developer-facing rejected-order shape into the reducer fact.
+ * Convert rejected-order input into the reducer fact.
  */
 export function createOrderRejectedFact(
   input: OrderRejectedInput,
@@ -260,7 +356,7 @@ export function createOrderRejectedFact(
 }
 
 /**
- * Convert the developer-facing unknown-status shape into the reducer fact.
+ * Convert unknown-status input into the reducer fact.
  */
 export function createOrderStatusUnknownFact(
   input: OrderStatusUnknownInput,
@@ -285,33 +381,33 @@ export function createOrderNotFoundFact(
     type: 'terminal_evidence',
     scope: copyScope(input.scope),
     identity: input.identity,
-    reason: input.reason ?? 'unknown_order_cancel_absent_from_hydration',
+    reason: input.reason ?? 'order_not_found',
     atMs: input.atMs ?? Date.now(),
   };
 }
 
 /**
- * Convert a cancel acknowledgement into terminal evidence for callers that know
- * the target identity.
+ * Convert a successful cancel response into terminal evidence for callers that
+ * know the target identity.
  */
-export function createCancelAcceptedTerminalFact(
-  input: CancelAcceptedInput,
+export function createOrderCancelledFact(
+  input: OrderCancelledInput,
 ): TerminalEvidenceFact {
   return {
     type: 'terminal_evidence',
     scope: copyScope(input.scope),
     identity: input.identity,
     reason: 'cancelled',
-    atMs: input.acceptedAtMs ?? Date.now(),
+    atMs: input.cancelledAtMs ?? Date.now(),
   };
 }
 
 /**
- * Build the human-facing account read model from the reducer view.
+ * Build the account read model from the reducer view.
  */
 export function createExchangeAccount(
   view: AccountView,
-  hydrationRequests: HydrationNeed[],
+  syncRequests: SyncRequest[],
   options: ExchangeAccountReadinessOptions = {},
 ): ExchangeAccount {
   const canTrustPositions = isTrustedForPlanning(view.confidence.positions);
@@ -323,6 +419,13 @@ export function createExchangeAccount(
     canTrustOpenOrders &&
     canTrustBalances &&
     (!options.requireFills || canTrustFills);
+  const accountSyncRequests = options.requireFills
+    ? syncRequests.map((request) =>
+        request.subject === 'fills' && request.priority === 'background'
+          ? { ...request, priority: 'immediate' as const }
+          : request,
+      )
+    : syncRequests;
 
   return {
     scope: copyScope(view.scope),
@@ -336,9 +439,8 @@ export function createExchangeAccount(
     canTrustOpenOrders,
     canTrustBalances,
     canTrustFills,
-    hydrationRequests,
-    hydrationReasons: [...view.hydrationReasons],
-    raw: view,
+    syncRequests: accountSyncRequests,
+    syncReasons: [...view.syncReasons],
   };
 }
 
@@ -367,7 +469,6 @@ export function createUnsupportedFactChangeSet(
         context: { factType },
       },
     ],
-    invariantViolations: [],
   };
 }
 

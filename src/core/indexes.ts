@@ -3,7 +3,7 @@ import type {
   NormalizedFill,
   NormalizedOrder,
   NormalizedPosition,
-  OrderIdentity,
+  OrderIdentityFilter,
 } from './types.js';
 
 /**
@@ -109,7 +109,7 @@ export function ordersShareIdentity(
  */
 export function orderMatchesIdentity(
   order: NormalizedOrder,
-  identity: OrderIdentity,
+  identity: OrderIdentityFilter,
 ): boolean {
   return (
     sharesDefinedValue(order.exchangeOrderId, identity.exchangeOrderId) ||

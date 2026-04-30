@@ -9,10 +9,6 @@ import type {
 } from './types.js';
 import { copyScope } from './utils.js';
 
-export interface ExchangeAccountStateStoreOptions {
-  managedOrderParsers?: ManagedOrderParser[];
-}
-
 export interface LifecycleFilter {
   symbol?: string;
   exchangePositionSide?: string;

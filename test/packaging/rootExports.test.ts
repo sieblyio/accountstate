@@ -3,6 +3,8 @@ import { createRequire } from 'node:module';
 import { AccountStateStore } from '../../src/AccountStateStore';
 import { ExchangeAccountStateStore } from '../../src/core/ExchangeAccountStateStore';
 import packageJson from '../../package.json';
+import * as sourceConformance from '../../src/conformance';
+import * as sourceCore from '../../src/core';
 import * as sourceRoot from '../../src/index';
 
 const requireFromTest = createRequire(__filename);
@@ -28,7 +30,17 @@ describe('root package exports', () => {
     expect(typeof sourceRoot.reportBalanceToApi).toBe('function');
   });
 
-  it('keeps the existing package root export map intact', () => {
+  it('keeps reducer/fact types off the root autocomplete surface', () => {
+    expect('AccountFact' in sourceRoot).toBe(false);
+    expect('RestSnapshotFact' in sourceRoot).toBe(false);
+    expect('StreamHealthFact' in sourceRoot).toBe(false);
+    expect('SnapshotInput' in sourceRoot).toBe(false);
+    expect(sourceCore.ExchangeAccountStateStore).toBe(
+      ExchangeAccountStateStore,
+    );
+  });
+
+  it('keeps the package export map explicit', () => {
     expect(packageJson.main).toBe('dist/cjs/index.js');
     expect(packageJson.module).toBe('dist/mjs/index.js');
     expect(packageJson.types).toBe('dist/mjs/index.d.ts');
@@ -36,6 +48,16 @@ describe('root package exports', () => {
       import: './dist/mjs/index.js',
       require: './dist/cjs/index.js',
       types: './dist/mjs/index.d.ts',
+    });
+    expect(packageJson.exports['./core']).toEqual({
+      import: './dist/mjs/core/index.js',
+      require: './dist/cjs/core/index.js',
+      types: './dist/mjs/core/index.d.ts',
+    });
+    expect(packageJson.exports['./conformance']).toEqual({
+      import: './dist/mjs/conformance.js',
+      require: './dist/cjs/conformance.js',
+      types: './dist/mjs/conformance.d.ts',
     });
   });
 
@@ -50,5 +72,23 @@ describe('root package exports', () => {
       sourceRoot.ENGINE_POSITION_SIDE,
     );
     expect(typeof builtRoot.getUnrealisedPnl).toBe('function');
+  });
+
+  it('loads the built CommonJS core subpath after build', () => {
+    const builtCore = requireFromTest('accountstate/core') as typeof sourceCore;
+
+    expect(builtCore.ExchangeAccountStateStore).toBeDefined();
+    expect(typeof builtCore.ExchangeAccountStateStore).toBe('function');
+  });
+
+  it('loads the built CommonJS conformance subpath after build', () => {
+    const builtConformance = requireFromTest(
+      'accountstate/conformance',
+    ) as typeof sourceConformance;
+
+    expect(typeof builtConformance.runAccountStateFixtures).toBe('function');
+    expect(builtConformance.defaultAccountStateFixtures.length).toBeGreaterThan(
+      0,
+    );
   });
 });

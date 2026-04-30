@@ -1,22 +1,22 @@
 import {
-  cloneHydrationNeed,
+  cloneSyncRequest,
   confidenceFromSource,
   confidenceFromStreamHealth,
   confidenceKeyForSubject,
   createInitialConfidence,
   createStreamWatermark,
   createWatermark,
-  getHydrationNeedKey,
-  getHydrationNeedsForConfidence,
-  getHydrationReasons,
-  getStreamHealthHydrationNeeds,
+  getSyncRequestKey,
+  getSyncRequestsForConfidence,
+  getSyncReasons,
+  getStreamHealthSyncRequests,
   getStreamHealthWarning,
-  isHydratingSnapshotSource,
+  isSyncingSnapshotSource,
   isSameConfidence,
   isSameWatermark,
 } from './confidence.js';
 import {
-  createCancelAcceptedTerminalFact,
+  createOrderCancelledFact,
   createExchangeAccount,
   createOrderAcceptedFact,
   createOrderNotFoundFact,
@@ -40,6 +40,10 @@ import {
   lifecycleMatchesFilter,
   reconcilePositionLifecycles,
 } from './lifecycle.js';
+import {
+  getBuiltInInvariantViolations,
+  runCustomInvariants,
+} from './invariants.js';
 import type {
   AccountFact,
   LocalSubmissionAcceptedFact,
@@ -50,7 +54,7 @@ import type {
   TerminalEvidenceFact,
 } from './facts.js';
 import type {
-  CancelAcceptedInput,
+  OrderCancelledInput,
   ExchangeAccount,
   ExchangeAccountReadinessOptions,
   FillFilter,
@@ -71,8 +75,9 @@ import type {
   AccountViewConfidence,
   AccountWatermarks,
   ChangeSet,
-  HydrationNeed,
-  HydrationSubject,
+  SyncRequest,
+  SyncSubject,
+  InvariantViolation,
   NormalizedBalance,
   NormalizedFill,
   NormalizedOrder,
@@ -80,16 +85,36 @@ import type {
   OrderIdentity,
   PositionLifecycle,
   Provenance,
-  SnapshotCoverage,
+  SyncCoverage,
   SnapshotInput,
+  TimestampMs,
 } from './types.js';
+import type { LifecycleFilter, LifecycleIdentity } from './lifecycle.js';
 import type {
-  ExchangeAccountStateStoreOptions,
-  LifecycleFilter,
-  LifecycleIdentity,
-} from './lifecycle.js';
-import type { ManagedOrderParser } from './plugins.js';
+  CheckInvariantsOptions,
+  InvariantRuntimeOptions,
+} from './invariants.js';
+import type { ManagedOrderParser, StateInvariant } from './plugins.js';
 import { copyScope, createScopeKey, isSameScope } from './utils.js';
+
+/**
+ * Optional extension points for the exchange account store.
+ */
+export interface ExchangeAccountStateStoreOptions extends InvariantRuntimeOptions {
+  /**
+   * Parsers that extract project-owned order metadata from normalized orders,
+   * usually from custom client order ids.
+   */
+  managedOrderParsers?: ManagedOrderParser[];
+  /**
+   * Project-specific health checks run by `checkInvariants`.
+   */
+  invariants?: StateInvariant[];
+  /**
+   * Clock used for deterministic tests and stale-order checks.
+   */
+  clock?: () => TimestampMs;
+}
 
 interface ScopeState {
   positions: Map<string, NormalizedPosition>;
@@ -99,7 +124,7 @@ interface ScopeState {
   lifecycles: PositionLifecycle[];
   confidence: AccountViewConfidence;
   watermarks: AccountWatermarks;
-  hydrationNeeds: Map<string, HydrationNeed>;
+  syncRequests: Map<string, SyncRequest>;
 }
 
 interface ReplacementResult {
@@ -121,11 +146,26 @@ type Row =
  * snapshots into this reducer.
  */
 export class ExchangeAccountStateStore {
-  private readonly scopes = new Map<string, ScopeState>();
-  private readonly managedOrderParsers: ManagedOrderParser[];
+  #scopes = new Map<string, ScopeState>();
+  #managedOrderParsers: ManagedOrderParser[];
+  #invariants: StateInvariant[];
+  #clock: () => TimestampMs;
+  #invariantOptions: InvariantRuntimeOptions;
 
+  /**
+   * Create an empty in-memory account store.
+   *
+   * The store owns no network clients; parent applications feed it normalized
+   * REST snapshots, private-stream updates, and order-submission outcomes.
+   */
   constructor(options: ExchangeAccountStateStoreOptions = {}) {
-    this.managedOrderParsers = [...(options.managedOrderParsers ?? [])];
+    this.#managedOrderParsers = [...(options.managedOrderParsers ?? [])];
+    this.#invariants = [...(options.invariants ?? [])];
+    this.#clock = options.clock ?? Date.now;
+    this.#invariantOptions = {
+      provisionalOrderStaleMs: options.provisionalOrderStaleMs,
+      validateDecimalStrings: options.validateDecimalStrings,
+    };
   }
 
   /**
@@ -133,7 +173,15 @@ export class ExchangeAccountStateStore {
    * order rows, usually from client order ids.
    */
   registerManagedOrderParser(parser: ManagedOrderParser): this {
-    this.managedOrderParsers.push(parser);
+    this.#managedOrderParsers.push(parser);
+    return this;
+  }
+
+  /**
+   * Register a project-specific account-state invariant.
+   */
+  registerInvariant(invariant: StateInvariant): this {
+    this.#invariants.push(invariant);
     return this;
   }
 
@@ -281,7 +329,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Mark the private stream reconnected and request account hydration.
+   * Mark the private stream reconnected and request account sync.
    */
   streamReconnected(
     scope: AccountScope,
@@ -293,7 +341,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Mark the private stream disconnected and request account hydration.
+   * Mark the private stream disconnected and request account sync.
    */
   streamDisconnected(
     scope: AccountScope,
@@ -305,23 +353,11 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Mark a known private-stream gap and request account hydration.
+   * Mark a known private-stream gap and request account sync.
    */
   streamGap(scope: AccountScope, options?: StreamHealthOptions): ChangeSet {
     return this.#applyStreamHealthFact(
       createStreamHealthFact(scope, 'gap', options),
-    );
-  }
-
-  /**
-   * Mark an expired listen key/session and request account hydration.
-   */
-  listenKeyExpired(
-    scope: AccountScope,
-    options?: StreamHealthOptions,
-  ): ChangeSet {
-    return this.#applyStreamHealthFact(
-      createStreamHealthFact(scope, 'expired', options),
     );
   }
 
@@ -349,10 +385,10 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Record a cancel acknowledgement when the target order identity is known.
+   * Record a cancel response that proves the target order is no longer open.
    */
-  cancelAccepted(input: CancelAcceptedInput): ChangeSet {
-    return this.#markOrderTerminal(createCancelAcceptedTerminalFact(input));
+  orderCancelled(input: OrderCancelledInput): ChangeSet {
+    return this.#markOrderTerminal(createOrderCancelledFact(input));
   }
 
   /**
@@ -370,7 +406,7 @@ export class ExchangeAccountStateStore {
     options?: ExchangeAccountReadinessOptions,
   ): ExchangeAccount {
     const view = this.getAccountView(scope);
-    return createExchangeAccount(view, this.getHydrationNeeds(scope), options);
+    return createExchangeAccount(view, this.getSyncRequests(scope), options);
   }
 
   /**
@@ -472,73 +508,53 @@ export class ExchangeAccountStateStore {
     return matches.length === 1 ? matches[0] : undefined;
   }
 
+  /**
+   * Apply one normalized adapter/replay fact.
+   *
+   * For ordinary app workflows, prefer methods such as `syncOpenOrders`,
+   * `onOrderUpdate`, and `orderAccepted`.
+   */
   ingest(input: AccountFact): ChangeSet;
+  /**
+   * Apply normalized adapter/replay facts in order.
+   *
+   * For ordinary app workflows, prefer methods such as `syncOpenOrders`,
+   * `onOrderUpdate`, and `orderAccepted`.
+   */
   ingest(inputs: AccountFact[]): ChangeSet[];
   /**
-   * Developer-facing adapter/replay entrypoint for normalized facts or fact batches.
+   * Apply normalized adapter/replay facts.
    *
-   * @advanced Prefer the exchange-account methods (`syncOpenOrders`,
-   * `onOrderUpdate`, `orderAccepted`, etc.) in ordinary application code.
+   * For ordinary app workflows, prefer methods such as `syncOpenOrders`,
+   * `onOrderUpdate`, and `orderAccepted`.
    */
   ingest(input: AccountFact | AccountFact[]): ChangeSet | ChangeSet[] {
     return Array.isArray(input)
-      ? this.applyFacts(input)
-      : this.applyFact(input);
+      ? input.map((fact) => this.#applyFact(fact))
+      : this.#applyFact(input);
   }
 
   /**
-   * Dispatch one normalized fact. This is mainly for replay, fixtures, and
-   * advanced adapters; app integrations can use the exchange-facing methods above.
+   * Run built-in and registered project invariants for one account scope.
    *
-   * @advanced Use `ingest` for adapter output and the exchange-account methods
-   * for normal REST/WebSocket/order-submission workflows.
+   * This is a read-only health check. It does not throw, mutate state, or
+   * require callers to understand reducer internals.
    */
-  applyFact(input: AccountFact): ChangeSet {
-    switch (input.type) {
-      case 'rest_snapshot':
-        return this.#applySnapshot(input);
-      case 'position_updated':
-      case 'order_updated':
-      case 'trade_executed':
-      case 'balance_updated':
-      case 'stream_gap':
-      case 'listen_key_expired':
-        return this.applyPrivateStreamEvent(input);
-      case 'local_submission_accepted':
-        return this.#applyLocalSubmissionAccepted(input);
-      case 'local_submission_rejected':
-        return this.#applyLocalSubmissionRejected(input);
-      case 'local_submission_unknown':
-        return this.#applyLocalSubmissionUnknown(input);
-      case 'local_cancel_accepted':
-        if (!input.target) {
-          return createUnsupportedFactChangeSet(input.scope, input.type);
-        }
-        return this.cancelAccepted({
-          scope: input.scope,
-          intentId: input.intentId,
-          identity: input.target,
-          acceptedAtMs: input.acceptedAtMs,
-          responseSummary: input.responseSummary,
-        });
-      case 'terminal_evidence':
-        return this.#markOrderTerminal(input);
-      case 'stream_health':
-        return this.#applyStreamHealthFact(input);
-      case 'hydration_gap':
-      case 'operator_state':
-        return createUnsupportedFactChangeSet(input.scope, input.type);
-    }
-  }
+  checkInvariants(
+    scope: AccountScope,
+    options: CheckInvariantsOptions = {},
+  ): InvariantViolation[] {
+    const view = this.getAccountView(scope);
+    const invariantOptions: CheckInvariantsOptions = {
+      ...this.#invariantOptions,
+      ...options,
+      nowMs: options.nowMs ?? this.#clock(),
+    };
 
-  /**
-   * Dispatch normalized facts in order and return each change set.
-   *
-   * @advanced Use `ingest` for adapter output and the exchange-account methods
-   * for normal REST/WebSocket/order-submission workflows.
-   */
-  applyFacts(inputs: AccountFact[]): ChangeSet[] {
-    return inputs.map((input) => this.applyFact(input));
+    return [
+      ...getBuiltInInvariantViolations(view, invariantOptions),
+      ...runCustomInvariants(view, this.#invariants),
+    ];
   }
 
   /**
@@ -548,54 +564,54 @@ export class ExchangeAccountStateStore {
    * visible as stale until later phases can reconcile it explicitly.
    */
   #applySnapshot(input: SnapshotInput<unknown>): ChangeSet {
-    const state = this.getOrCreateScopeState(input.scope);
+    const state = this.#getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
     const confidenceBefore = state.confidence;
 
     switch (input.subject) {
       case 'positions':
-        this.applyRows(
+        this.#applyRows(
           state.positions,
           input.rows,
           input,
           isNormalizedPosition,
           getPositionKey,
-          (row) => this.isPositionCovered(row, input),
+          (row) => this.#isPositionCovered(row, input),
           changeSet,
         );
         break;
       case 'openOrders':
-        this.applyRows(
+        this.#applyRows(
           state.openOrders,
-          this.prepareOpenOrderRows(input.rows),
+          this.#prepareOpenOrderRows(input.rows),
           input,
           isNormalizedOrder,
           getOrderKey,
-          (row) => this.isOrderCovered(row, input),
+          (row) => this.#isOrderCovered(row, input),
           changeSet,
-          (collection, row) => this.findExistingOrderKey(collection, row),
-          this.handleMissingOpenOrder,
+          (collection, row) => this.#findExistingOrderKey(collection, row),
+          this.#handleMissingOpenOrder,
         );
         break;
       case 'balances':
-        this.applyRows(
+        this.#applyRows(
           state.balances,
           input.rows,
           input,
           isNormalizedBalance,
           getBalanceKey,
-          (row) => this.isBalanceCovered(row, input),
+          (row) => this.#isBalanceCovered(row, input),
           changeSet,
         );
         break;
       case 'fills':
-        this.applyRows(
+        this.#applyRows(
           state.fills,
           input.rows,
           input,
           isNormalizedFill,
           getFillKey,
-          (row) => this.isFillCovered(row, input),
+          (row) => this.#isFillCovered(row, input),
           changeSet,
         );
         break;
@@ -613,8 +629,8 @@ export class ExchangeAccountStateStore {
       [confidenceKeyForSubject(input.subject)]:
         changeSet.rowsStale > 0 ? 'stale' : confidenceFromSource(input.source),
     };
-    const hydrationNeedsCleared = isHydratingSnapshotSource(input.source)
-      ? clearHydrationNeedsForSubject(state, input.subject)
+    const syncRequestsCleared = isSyncingSnapshotSource(input.source)
+      ? clearSyncRequestsForSubject(state, input.subject)
       : 0;
 
     changeSet.confidenceChanged = !isSameConfidence(
@@ -628,10 +644,10 @@ export class ExchangeAccountStateStore {
         watermarksBefore[input.subject],
         state.watermarks[input.subject],
       ) ||
-      hydrationNeedsCleared > 0;
+      syncRequestsCleared > 0;
 
     if (input.subject === 'positions' || input.subject === 'openOrders') {
-      this.reconcileLifecycles(state, input.scope, changeSet);
+      this.#reconcileLifecycles(state, input.scope, changeSet);
     }
 
     return changeSet;
@@ -640,12 +656,11 @@ export class ExchangeAccountStateStore {
   /**
    * Record private-stream health without owning the stream connection itself.
    *
-   * Gaps, reconnects, disconnects, and listen-key expiry mark account subjects
-   * stale and request hydration. A clean connection only updates stream
-   * confidence/watermark.
+   * Gaps, reconnects, and disconnects mark account subjects stale and request
+   * sync. A clean connection only updates stream confidence/watermark.
    */
   #applyStreamHealthFact(input: StreamHealthFact): ChangeSet {
-    const state = this.getOrCreateScopeState(input.scope);
+    const state = this.#getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
     const confidenceBefore = state.confidence;
     const watermarksBefore = state.watermarks;
@@ -659,10 +674,10 @@ export class ExchangeAccountStateStore {
       stream: createStreamWatermark(input),
     };
 
-    let hydrationNeedsChanged = false;
-    for (const need of getStreamHealthHydrationNeeds(input)) {
-      hydrationNeedsChanged =
-        addHydrationNeed(state, need) || hydrationNeedsChanged;
+    let syncRequestsChanged = false;
+    for (const request of getStreamHealthSyncRequests(input)) {
+      syncRequestsChanged =
+        addSyncRequest(state, request) || syncRequestsChanged;
     }
 
     const warning = getStreamHealthWarning(input);
@@ -677,7 +692,7 @@ export class ExchangeAccountStateStore {
     changeSet.changed =
       changeSet.confidenceChanged ||
       !isSameWatermark(watermarksBefore.stream, state.watermarks.stream) ||
-      hydrationNeedsChanged ||
+      syncRequestsChanged ||
       changeSet.warnings.length > 0;
 
     return changeSet;
@@ -692,11 +707,11 @@ export class ExchangeAccountStateStore {
    * during the confirmation window.
    */
   #applyLocalSubmissionAccepted(input: LocalSubmissionAcceptedFact): ChangeSet {
-    const state = this.getOrCreateScopeState(input.scope);
+    const state = this.#getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
     const confidenceBefore = state.confidence;
 
-    const order = this.prepareOpenOrder(input.order);
+    const order = this.#prepareOpenOrder(input.order);
     if (!isSameScope(input.scope, order)) {
       changeSet.warnings.push({
         name: 'local_submission_order_scope_mismatch',
@@ -710,7 +725,7 @@ export class ExchangeAccountStateStore {
     }
 
     const provisionalOrder = createProvisionalOrder({ ...input, order });
-    const existingKey = this.findExistingOrderKey(
+    const existingKey = this.#findExistingOrderKey(
       state.openOrders,
       provisionalOrder,
     );
@@ -769,7 +784,7 @@ export class ExchangeAccountStateStore {
       changeSet.confidenceChanged ||
       changeSet.warnings.length > 0;
 
-    this.reconcileLifecycles(state, input.scope, changeSet);
+    this.#reconcileLifecycles(state, input.scope, changeSet);
 
     return changeSet;
   }
@@ -777,17 +792,17 @@ export class ExchangeAccountStateStore {
   /**
    * Record that a local submission was rejected.
    *
-   * Any matching provisional/open order is removed, and an explicit hydration
-   * need is stored so the parent app can reconcile open orders before planning.
+   * Any matching provisional/open order is removed, and an explicit sync
+   * request is stored so the parent app can reconcile open orders before planning.
    */
   #applyLocalSubmissionRejected(input: LocalSubmissionRejectedFact): ChangeSet {
-    const state = this.getOrCreateScopeState(input.scope);
+    const state = this.#getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
     const confidenceBefore = state.confidence;
-    const terminalRows = this.removeOrderByIdentity(
-      state.openOrders,
-      identityFromClientId(input.clientId),
-    );
+    const identity = identityFromClientId(input.clientId);
+    const terminalRows = identity
+      ? this.#removeOrderByIdentity(state.openOrders, identity)
+      : 0;
 
     changeSet.rowsTerminal += terminalRows;
     changeSet.warnings.push({
@@ -800,7 +815,7 @@ export class ExchangeAccountStateStore {
         error: input.error,
       },
     });
-    addHydrationNeed(state, {
+    addSyncRequest(state, {
       scope: input.scope,
       subject: 'openOrders',
       reason: 'conflicting_state',
@@ -818,7 +833,7 @@ export class ExchangeAccountStateStore {
     );
     changeSet.changed = true;
 
-    this.reconcileLifecycles(state, input.scope, changeSet);
+    this.#reconcileLifecycles(state, input.scope, changeSet);
 
     return changeSet;
   }
@@ -827,10 +842,10 @@ export class ExchangeAccountStateStore {
    * Record an indeterminate local submission result.
    *
    * Existing provisional rows are deliberately left in place. The parent app can
-   * use `getHydrationNeeds()` to schedule an immediate open-order hydration.
+   * use `getSyncRequests()` to schedule an immediate open-order sync.
    */
   #applyLocalSubmissionUnknown(input: LocalSubmissionUnknownFact): ChangeSet {
-    const state = this.getOrCreateScopeState(input.scope);
+    const state = this.#getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
     const confidenceBefore = state.confidence;
 
@@ -838,14 +853,14 @@ export class ExchangeAccountStateStore {
       name: 'local_submission_unknown',
       scope: input.scope,
       message:
-        'Local submission result is unknown; open orders need exchange hydration.',
+        'Local submission result is unknown; open orders need exchange sync.',
       context: {
         intentId: input.intentId,
         clientId: input.clientId,
         error: input.error,
       },
     });
-    addHydrationNeed(state, {
+    addSyncRequest(state, {
       scope: input.scope,
       subject: 'openOrders',
       reason: 'submission_unknown',
@@ -863,7 +878,7 @@ export class ExchangeAccountStateStore {
     );
     changeSet.changed = true;
 
-    this.reconcileLifecycles(state, input.scope, changeSet);
+    this.#reconcileLifecycles(state, input.scope, changeSet);
 
     return changeSet;
   }
@@ -875,9 +890,9 @@ export class ExchangeAccountStateStore {
    * later authoritative lookup proving an order is no longer open.
    */
   #markOrderTerminal(input: TerminalEvidenceFact): ChangeSet {
-    const state = this.getOrCreateScopeState(input.scope);
+    const state = this.#getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
-    const rowsTerminal = this.removeOrderByIdentity(
+    const rowsTerminal = this.#removeOrderByIdentity(
       state.openOrders,
       input.identity,
     );
@@ -896,24 +911,61 @@ export class ExchangeAccountStateStore {
     }
     changeSet.changed = rowsTerminal > 0 || changeSet.warnings.length > 0;
 
-    this.reconcileLifecycles(state, input.scope, changeSet);
+    this.#reconcileLifecycles(state, input.scope, changeSet);
 
     return changeSet;
   }
 
+  #applyFact(input: AccountFact): ChangeSet {
+    switch (input.type) {
+      case 'rest_snapshot':
+        return this.#applySnapshot(input);
+      case 'position_updated':
+      case 'order_updated':
+      case 'trade_executed':
+      case 'balance_updated':
+      case 'stream_gap':
+        return this.#applyPrivateStreamEvent(input);
+      case 'local_submission_accepted':
+        return this.#applyLocalSubmissionAccepted(input);
+      case 'local_submission_rejected':
+        return this.#applyLocalSubmissionRejected(input);
+      case 'local_submission_unknown':
+        return this.#applyLocalSubmissionUnknown(input);
+      case 'local_order_cancelled':
+        if (!input.target) {
+          return createUnsupportedFactChangeSet(input.scope, input.type);
+        }
+        return this.orderCancelled({
+          scope: input.scope,
+          intentId: input.intentId,
+          identity: input.target,
+          cancelledAtMs: input.cancelledAtMs,
+          responseSummary: input.responseSummary,
+        });
+      case 'terminal_evidence':
+        return this.#markOrderTerminal(input);
+      case 'stream_health':
+        return this.#applyStreamHealthFact(input);
+      case 'sync_gap':
+      case 'operator_state':
+        return createUnsupportedFactChangeSet(input.scope, input.type);
+    }
+  }
+
   /**
-   * Return explicit hydration needs recorded by local submission and stream
+   * Return explicit sync requests recorded by local submission and stream
    * health facts. The parent application still owns scheduling and networking.
    *
    * Most application code can read the same requests from
-   * `getAccount(scope).hydrationRequests`.
+   * `getAccount(scope).syncRequests`.
    */
-  getHydrationNeeds(scope: AccountScope): HydrationNeed[] {
-    const state = this.getScopeState(scope);
-    return getHydrationNeedsForConfidence(
+  getSyncRequests(scope: AccountScope): SyncRequest[] {
+    const state = this.#getScopeState(scope);
+    return getSyncRequestsForConfidence(
       scope,
       state?.confidence ?? createInitialConfidence(),
-      state ? Array.from(state.hydrationNeeds.values()) : [],
+      state ? Array.from(state.syncRequests.values()) : [],
     );
   }
 
@@ -923,20 +975,20 @@ export class ExchangeAccountStateStore {
    * The returned rows are clones so callers can plan from the view without
    * accidentally mutating reducer state between fact applications.
    *
-   * @advanced Most application code should prefer `getAccount(scope)`, which
-   * includes readiness booleans and hydration requests.
+   * Most application code should prefer `getAccount(scope)`, which includes
+   * readiness booleans and sync requests.
    */
   getAccountView(scope: AccountScope): AccountView {
-    const state = this.getScopeState(scope);
+    const state = this.#getScopeState(scope);
     const confidence = state?.confidence ?? createInitialConfidence();
     const positions = state ? Array.from(state.positions.values()) : [];
     const openOrders = state ? Array.from(state.openOrders.values()) : [];
     const balances = state ? Array.from(state.balances.values()) : [];
     const fills = state ? Array.from(state.fills.values()) : [];
-    const hydrationReasons = getHydrationReasons(
+    const syncReasons = getSyncReasons(
       confidence,
       openOrders,
-      state ? Array.from(state.hydrationNeeds.values()) : [],
+      state ? Array.from(state.syncRequests.values()) : [],
     );
 
     return {
@@ -948,8 +1000,8 @@ export class ExchangeAccountStateStore {
       lifecycles: state ? state.lifecycles.map(cloneLifecycle) : [],
       confidence: { ...confidence },
       watermarks: cloneWatermarks(state?.watermarks ?? {}),
-      needsHydration: hydrationReasons.length > 0,
-      hydrationReasons,
+      needsSync: syncReasons.length > 0,
+      syncReasons,
     };
   }
 
@@ -957,7 +1009,7 @@ export class ExchangeAccountStateStore {
    * Translate normalized private stream events into the same row reducers used by
    * snapshots so stream and REST paths cannot drift.
    */
-  private applyPrivateStreamEvent(input: NormalizedPrivateEvent): ChangeSet {
+  #applyPrivateStreamEvent(input: NormalizedPrivateEvent): ChangeSet {
     switch (input.type) {
       case 'position_updated':
         return this.#applySnapshot({
@@ -1008,14 +1060,6 @@ export class ExchangeAccountStateStore {
           atMs: input.provenance.receivedAtMs,
           provenance: input.provenance,
         });
-      case 'listen_key_expired':
-        return this.#applyStreamHealthFact({
-          type: 'stream_health',
-          scope: input.scope,
-          status: 'expired',
-          atMs: input.provenance.receivedAtMs,
-          provenance: input.provenance,
-        });
     }
   }
 
@@ -1025,7 +1069,7 @@ export class ExchangeAccountStateStore {
    * It validates row shape and scope, upserts by row identity, then applies
    * replacement semantics only to rows covered by the snapshot input.
    */
-  private applyRows<T extends Row>(
+  #applyRows<T extends Row>(
     collection: Map<string, T>,
     rows: unknown[],
     input: SnapshotInput<unknown>,
@@ -1119,10 +1163,10 @@ export class ExchangeAccountStateStore {
   /**
    * Decide whether an existing position is covered by this snapshot.
    *
-   * Position-side coverage lets hedge-mode hydrations replace only LONG or
+   * Position-side coverage lets hedge-mode syncs replace only LONG or
    * SHORT without deleting the opposite side for the same symbol.
    */
-  private isPositionCovered(
+  #isPositionCovered(
     position: NormalizedPosition,
     input: SnapshotInput<unknown>,
   ): boolean {
@@ -1142,7 +1186,7 @@ export class ExchangeAccountStateStore {
    * Order kind coverage keeps separate exchange feeds, such as regular orders
    * and algo/conditional orders, from terminating each other accidentally.
    */
-  private isOrderCovered(
+  #isOrderCovered(
     order: NormalizedOrder,
     input: SnapshotInput<unknown>,
   ): boolean {
@@ -1162,7 +1206,7 @@ export class ExchangeAccountStateStore {
    * Balances are not symbol-scoped, so `replace-symbols` is intentionally a
    * no-op for deletions here.
    */
-  private isBalanceCovered(
+  #isBalanceCovered(
     balance: NormalizedBalance,
     input: SnapshotInput<unknown>,
   ): boolean {
@@ -1179,10 +1223,7 @@ export class ExchangeAccountStateStore {
    * Fills are append-like in most integrations, but replacement support is kept
    * for replay/test data where a scoped history window may be authoritative.
    */
-  private isFillCovered(
-    fill: NormalizedFill,
-    input: SnapshotInput<unknown>,
-  ): boolean {
+  #isFillCovered(fill: NormalizedFill, input: SnapshotInput<unknown>): boolean {
     if (input.mode === 'replace-symbols' && !hasCoveredSymbol(input.coverage)) {
       return false;
     }
@@ -1196,7 +1237,7 @@ export class ExchangeAccountStateStore {
    * This allows a local client-id-only order to converge with a later REST row
    * that includes the exchange order id.
    */
-  private findExistingOrderKey(
+  #findExistingOrderKey(
     collection: Map<string, NormalizedOrder>,
     row: NormalizedOrder,
   ): string | undefined {
@@ -1219,9 +1260,9 @@ export class ExchangeAccountStateStore {
    *
    * Manual/unknown orders can be removed when absent from an authoritative open
    * order snapshot. App-owned or provisional orders remain as stale so the
-   * caller can hydrate or reconcile before planning more submissions.
+   * caller can sync or reconcile before planning more submissions.
    */
-  private readonly handleMissingOpenOrder = (
+  #handleMissingOpenOrder = (
     collection: Map<string, NormalizedOrder>,
     key: string,
     row: NormalizedOrder,
@@ -1242,23 +1283,23 @@ export class ExchangeAccountStateStore {
    * Enrich normalized app-owned order rows with metadata from registered
    * parsers before identity/lifecycle logic sees them.
    */
-  private prepareOpenOrderRows(rows: unknown[]): unknown[] {
+  #prepareOpenOrderRows(rows: unknown[]): unknown[] {
     return rows.map((row) =>
-      isNormalizedOrder(row) ? this.prepareOpenOrder(row) : row,
+      isNormalizedOrder(row) ? this.#prepareOpenOrder(row) : row,
     );
   }
 
   /**
    * Apply managed order parsers to a single normalized order row.
    */
-  private prepareOpenOrder(order: NormalizedOrder): NormalizedOrder {
-    return applyManagedOrderParsers(order, this.managedOrderParsers);
+  #prepareOpenOrder(order: NormalizedOrder): NormalizedOrder {
+    return applyManagedOrderParsers(order, this.#managedOrderParsers);
   }
 
   /**
    * Keep lifecycle state derived from the current position/open-order view.
    */
-  private reconcileLifecycles(
+  #reconcileLifecycles(
     state: ScopeState,
     scope: AccountScope,
     changeSet: ChangeSet,
@@ -1281,18 +1322,18 @@ export class ExchangeAccountStateStore {
 
   /**
    * Look up state without creating it, used by reads so unknown scopes remain
-   * unknown instead of becoming empty-but-hydrated.
+   * unknown instead of becoming empty-but-synced.
    */
-  private getScopeState(scope: AccountScope): ScopeState | undefined {
-    return this.scopes.get(createScopeKey(scope));
+  #getScopeState(scope: AccountScope): ScopeState | undefined {
+    return this.#scopes.get(createScopeKey(scope));
   }
 
   /**
    * Create mutable reducer storage for a scope the first time a fact is applied.
    */
-  private getOrCreateScopeState(scope: AccountScope): ScopeState {
+  #getOrCreateScopeState(scope: AccountScope): ScopeState {
     const key = createScopeKey(scope);
-    const existing = this.scopes.get(key);
+    const existing = this.#scopes.get(key);
     if (existing) {
       return existing;
     }
@@ -1305,16 +1346,16 @@ export class ExchangeAccountStateStore {
       lifecycles: [],
       confidence: createInitialConfidence(),
       watermarks: {},
-      hydrationNeeds: new Map(),
+      syncRequests: new Map(),
     };
-    this.scopes.set(key, created);
+    this.#scopes.set(key, created);
     return created;
   }
 
   /**
    * Remove an open order by any supplied identity fields.
    */
-  private removeOrderByIdentity(
+  #removeOrderByIdentity(
     collection: Map<string, NormalizedOrder>,
     identity: OrderIdentity,
   ): number {
@@ -1386,35 +1427,37 @@ function createProvisionalOrder(
 /**
  * Build an order identity from a local client id, if one is available.
  */
-function identityFromClientId(clientId: string | undefined): OrderIdentity {
-  return clientId ? { customClientOrderId: clientId } : {};
+function identityFromClientId(
+  clientId: string | undefined,
+): OrderIdentity | undefined {
+  return clientId ? { customClientOrderId: clientId } : undefined;
 }
 
 /**
- * Store a hydration need by subject/reason so repeated unknown results update
+ * Store a sync request by subject/reason so repeated unknown results update
  * the request instead of creating duplicate scheduler work.
  */
-function addHydrationNeed(state: ScopeState, need: HydrationNeed): boolean {
-  const key = getHydrationNeedKey(need);
-  const cloned = cloneHydrationNeed(need);
-  const existing = state.hydrationNeeds.get(key);
-  state.hydrationNeeds.set(key, cloned);
+function addSyncRequest(state: ScopeState, request: SyncRequest): boolean {
+  const key = getSyncRequestKey(request);
+  const cloned = cloneSyncRequest(request);
+  const existing = state.syncRequests.get(key);
+  state.syncRequests.set(key, cloned);
 
   return JSON.stringify(existing) !== JSON.stringify(cloned);
 }
 
 /**
- * Clear explicit hydration needs after an authoritative snapshot has satisfied
+ * Clear explicit sync requests after an authoritative snapshot has satisfied
  * that subject's pending scheduler work.
  */
-function clearHydrationNeedsForSubject(
+function clearSyncRequestsForSubject(
   state: ScopeState,
-  subject: HydrationSubject,
+  subject: SyncSubject,
 ): number {
   let cleared = 0;
-  for (const [key, need] of Array.from(state.hydrationNeeds.entries())) {
-    if (need.subject === subject) {
-      state.hydrationNeeds.delete(key);
+  for (const [key, request] of Array.from(state.syncRequests.entries())) {
+    if (request.subject === subject) {
+      state.syncRequests.delete(key);
       cleared++;
     }
   }
@@ -1475,7 +1518,6 @@ function createEmptyChangeSet(scope: AccountScope): ChangeSet {
     confidenceChanged: false,
     lifecycleChanges: [],
     warnings: [],
-    invariantViolations: [],
   };
 }
 
@@ -1546,7 +1588,7 @@ function matchesOptional<T>(
  * `replace-symbols` requires explicit symbol coverage before any existing row
  * can be considered absent.
  */
-function hasCoveredSymbol(coverage: SnapshotCoverage | undefined): boolean {
+function hasCoveredSymbol(coverage: SyncCoverage | undefined): boolean {
   return Boolean(coverage?.symbols?.length);
 }
 
@@ -1556,7 +1598,7 @@ function hasCoveredSymbol(coverage: SnapshotCoverage | undefined): boolean {
  */
 function isSymbolCovered(
   symbol: string,
-  coverage: SnapshotCoverage | undefined,
+  coverage: SyncCoverage | undefined,
 ): boolean {
   return !coverage?.symbols || coverage.symbols.includes(symbol);
 }
@@ -1566,7 +1608,7 @@ function isSymbolCovered(
  */
 function isOrderKindCovered(
   kind: NormalizedOrder['kind'],
-  coverage: SnapshotCoverage | undefined,
+  coverage: SyncCoverage | undefined,
 ): boolean {
   return !coverage?.orderKinds || coverage.orderKinds.includes(kind);
 }
@@ -1576,7 +1618,7 @@ function isOrderKindCovered(
  */
 function isPositionSideCovered(
   positionSide: string,
-  coverage: SnapshotCoverage | undefined,
+  coverage: SyncCoverage | undefined,
 ): boolean {
   return (
     !coverage?.positionSides || coverage.positionSides.includes(positionSide)
@@ -1588,7 +1630,7 @@ function isPositionSideCovered(
  */
 function isAssetCovered(
   asset: string,
-  coverage: SnapshotCoverage | undefined,
+  coverage: SyncCoverage | undefined,
 ): boolean {
   return !coverage?.assets || coverage.assets.includes(asset);
 }

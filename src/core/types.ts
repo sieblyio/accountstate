@@ -162,7 +162,7 @@ export type ConfidenceState =
   | 'unknown'
   | 'local_only'
   | 'stream_only'
-  | 'rest_hydrated'
+  | 'synced'
   | 'rest_and_stream'
   | 'stale'
   | 'conflicted'
@@ -204,8 +204,8 @@ export interface AccountView {
   lifecycles: PositionLifecycle[];
   confidence: AccountViewConfidence;
   watermarks: AccountWatermarks;
-  needsHydration: boolean;
-  hydrationReasons: string[];
+  needsSync: boolean;
+  syncReasons: string[];
 }
 
 export type SnapshotSubject =
@@ -215,9 +215,9 @@ export type SnapshotSubject =
   | 'fills'
   | 'filters';
 
-export type SnapshotMode = 'replace-scope' | 'replace-symbols' | 'upsert-only';
+export type SyncMode = 'replace-scope' | 'replace-symbols' | 'upsert-only';
 
-export interface SnapshotCoverage {
+export interface SyncCoverage {
   symbols?: string[];
   orderKinds?: NormalizedOrderKind[];
   positionSides?: string[];
@@ -227,11 +227,11 @@ export interface SnapshotCoverage {
 export interface SnapshotInput<T> {
   scope: AccountScope;
   subject: SnapshotSubject;
-  mode: SnapshotMode;
+  mode: SyncMode;
   rows: T[];
   asOfMs: TimestampMs;
   source: StateSource;
-  coverage?: SnapshotCoverage;
+  coverage?: SyncCoverage;
   provenance?: Provenance;
 }
 
@@ -270,40 +270,45 @@ export interface ChangeSet {
   confidenceChanged: boolean;
   lifecycleChanges: LifecycleChange[];
   warnings: StateWarning[];
-  invariantViolations: InvariantViolation[];
 }
 
-export type HydrationSubject =
+export type SyncSubject =
   | 'positions'
   | 'openOrders'
   | 'balances'
   | 'fills'
   | 'filters';
 
-export type HydrationReason =
+export type SyncReason =
   | 'startup'
   | 'stream_reconnected'
   | 'stream_gap'
   | 'submission_unknown'
   | 'provisional_stale'
+  | 'stale_state'
   | 'conflicting_state'
-  | 'operator_requested'
-  | 'ttl_expired';
+  | 'operator_requested';
 
-export interface HydrationNeed {
+export interface SyncRequest {
   scope: AccountScope;
-  subject: HydrationSubject;
-  reason: HydrationReason;
+  subject: SyncSubject;
+  reason: SyncReason;
   priority: 'immediate' | 'soon' | 'background';
   requestedAtMs?: TimestampMs;
 }
 
-export interface OrderIdentity {
+export interface OrderIdentityFilter {
   exchangeOrderId?: string;
   customClientOrderId?: string;
   clientAlgoId?: string;
   exchangeAlgoId?: string;
 }
+
+export type OrderIdentity =
+  | (OrderIdentityFilter & { exchangeOrderId: string })
+  | (OrderIdentityFilter & { customClientOrderId: string })
+  | (OrderIdentityFilter & { clientAlgoId: string })
+  | (OrderIdentityFilter & { exchangeAlgoId: string });
 
 export type TerminalReason =
   | 'filled'
@@ -311,5 +316,5 @@ export type TerminalReason =
   | 'expired'
   | 'rejected'
   | 'absent_from_open_order_snapshot'
-  | 'unknown_order_cancel_absent_from_hydration'
+  | 'order_not_found'
   | 'manual_operator_terminal';

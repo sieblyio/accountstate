@@ -1,5 +1,6 @@
 import { ExchangeAccountStateStore } from '../../src';
-import type { AccountScope, SnapshotSubject } from '../../src';
+import type { AccountScope } from '../../src';
+import type { SnapshotSubject } from '../../src/core';
 
 const scope: AccountScope = {
   exchange: 'binance',
@@ -15,7 +16,7 @@ const accountSubjects: Exclude<SnapshotSubject, 'filters'>[] = [
   'fills',
 ];
 
-function hydrateAllSubjects(state: ExchangeAccountStateStore): void {
+function syncAllSubjects(state: ExchangeAccountStateStore): void {
   for (const subject of accountSubjects) {
     switch (subject) {
       case 'positions':
@@ -34,8 +35,8 @@ function hydrateAllSubjects(state: ExchangeAccountStateStore): void {
   }
 }
 
-describe('ExchangeAccountStateStore confidence and hydration', () => {
-  it('returns startup hydration needs for unknown account subjects', () => {
+describe('ExchangeAccountStateStore confidence and sync', () => {
+  it('returns startup sync requests for unknown account subjects', () => {
     const state = new ExchangeAccountStateStore();
 
     expect(state.getAccountView(scope).confidence).toEqual({
@@ -44,7 +45,7 @@ describe('ExchangeAccountStateStore confidence and hydration', () => {
       balances: 'unknown',
       fills: 'unknown',
     });
-    expect(state.getHydrationNeeds(scope)).toEqual([
+    expect(state.getSyncRequests(scope)).toEqual([
       {
         scope,
         subject: 'positions',
@@ -67,12 +68,12 @@ describe('ExchangeAccountStateStore confidence and hydration', () => {
         scope,
         subject: 'fills',
         reason: 'startup',
-        priority: 'immediate',
+        priority: 'background',
       },
     ]);
   });
 
-  it('REST hydration clears startup needs for the hydrated subject', () => {
+  it('REST sync clears startup requests for the synced subject', () => {
     const state = new ExchangeAccountStateStore();
 
     const changeSet = state.syncPositions(scope, [], {
@@ -84,10 +85,8 @@ describe('ExchangeAccountStateStore confidence and hydration', () => {
       changed: true,
       confidenceChanged: true,
     });
-    expect(state.getAccountView(scope).confidence.positions).toBe(
-      'rest_hydrated',
-    );
-    expect(state.getHydrationNeeds(scope)).toEqual([
+    expect(state.getAccountView(scope).confidence.positions).toBe('synced');
+    expect(state.getSyncRequests(scope)).toEqual([
       {
         scope,
         subject: 'openOrders',
@@ -104,14 +103,14 @@ describe('ExchangeAccountStateStore confidence and hydration', () => {
         scope,
         subject: 'fills',
         reason: 'startup',
-        priority: 'immediate',
+        priority: 'background',
       },
     ]);
   });
 
-  it('stream gaps mark account subjects stale and request hydration', () => {
+  it('stream gaps mark account subjects stale and request sync', () => {
     const state = new ExchangeAccountStateStore();
-    hydrateAllSubjects(state);
+    syncAllSubjects(state);
 
     const changeSet = state.streamGap(scope, {
       reason: 'sequence gap',
@@ -142,7 +141,7 @@ describe('ExchangeAccountStateStore confidence and hydration', () => {
       eventId: 'gap-1',
       sequence: '42',
     });
-    expect(state.getHydrationNeeds(scope)).toEqual(
+    expect(state.getSyncRequests(scope)).toEqual(
       accountSubjects.map((subject) => ({
         scope,
         subject,
@@ -153,9 +152,9 @@ describe('ExchangeAccountStateStore confidence and hydration', () => {
     );
   });
 
-  it('reconnects keep stream confidence connected but request account hydration', () => {
+  it('reconnects keep stream confidence connected but request account sync', () => {
     const state = new ExchangeAccountStateStore();
-    hydrateAllSubjects(state);
+    syncAllSubjects(state);
 
     const changeSet = state.streamReconnected(scope, {
       reason: 'socket restarted',
@@ -172,7 +171,7 @@ describe('ExchangeAccountStateStore confidence and hydration', () => {
       fills: 'stale',
       stream: 'stream_only',
     });
-    expect(state.getHydrationNeeds(scope)).toEqual(
+    expect(state.getSyncRequests(scope)).toEqual(
       accountSubjects.map((subject) => ({
         scope,
         subject,
@@ -183,47 +182,36 @@ describe('ExchangeAccountStateStore confidence and hydration', () => {
     );
   });
 
-  it.each([
-    ['disconnected', 'stream_disconnected', 'stream_gap'],
-    ['expired', 'listen_key_expired', 'ttl_expired'],
-  ] as const)(
-    '%s stream health facts request immediate hydration',
-    (status, warningName, hydrationReason) => {
-      const state = new ExchangeAccountStateStore();
-      hydrateAllSubjects(state);
-
-      const changeSet =
-        status === 'disconnected'
-          ? state.streamDisconnected(scope, { atMs: 2 })
-          : state.listenKeyExpired(scope, { atMs: 2 });
-
-      expect(changeSet.warnings.map((warning) => warning.name)).toEqual([
-        warningName,
-      ]);
-      expect(state.getAccountView(scope).confidence.stream).toBe('stale');
-      expect(state.getHydrationNeeds(scope)).toEqual(
-        accountSubjects.map((subject) => ({
-          scope,
-          subject,
-          reason: hydrationReason,
-          priority: 'immediate',
-          requestedAtMs: 2,
-        })),
-      );
-    },
-  );
-
-  it('REST snapshots clear matching stream hydration needs', () => {
+  it('disconnected stream health facts request immediate sync', () => {
     const state = new ExchangeAccountStateStore();
-    hydrateAllSubjects(state);
+    syncAllSubjects(state);
+
+    const changeSet = state.streamDisconnected(scope, { atMs: 2 });
+
+    expect(changeSet.warnings.map((warning) => warning.name)).toEqual([
+      'stream_disconnected',
+    ]);
+    expect(state.getAccountView(scope).confidence.stream).toBe('stale');
+    expect(state.getSyncRequests(scope)).toEqual(
+      accountSubjects.map((subject) => ({
+        scope,
+        subject,
+        reason: 'stream_gap',
+        priority: 'immediate',
+        requestedAtMs: 2,
+      })),
+    );
+  });
+
+  it('REST snapshots clear matching stream sync requests', () => {
+    const state = new ExchangeAccountStateStore();
+    syncAllSubjects(state);
     state.streamGap(scope, { atMs: 2 });
 
     state.syncPositions(scope, [], { mode: 'replace-scope', asOfMs: 3 });
 
-    expect(state.getAccountView(scope).confidence.positions).toBe(
-      'rest_hydrated',
-    );
-    expect(state.getHydrationNeeds(scope)).toEqual(
+    expect(state.getAccountView(scope).confidence.positions).toBe('synced');
+    expect(state.getSyncRequests(scope)).toEqual(
       ['openOrders', 'balances', 'fills'].map((subject) => ({
         scope,
         subject,
