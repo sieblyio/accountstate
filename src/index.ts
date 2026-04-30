@@ -4,6 +4,7 @@ export * from './util/position.math.js';
 export * from './util/position.types.js';
 export * from './util/reporting.js';
 export * from './AccountStateStore.js';
+export * from './core/ExchangeAccountStateStore.js';
 
 export type {
   AccountId,
