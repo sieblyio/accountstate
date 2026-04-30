@@ -31,7 +31,7 @@ async function postBalanceToServer(
   updateData: BalanceUpdateEventData,
   eventTime: number,
   accountDesc: string,
-  viewTags: string = '',
+  viewTags = '',
 ): Promise<unknown> {
   const event: BalanceUpdateEvent = {
     updateData,
