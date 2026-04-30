@@ -35,6 +35,11 @@ import {
   orderMatchesIdentity,
   ordersShareIdentity,
 } from './indexes.js';
+import {
+  applyManagedOrderParsers,
+  lifecycleMatchesFilter,
+  reconcilePositionLifecycles,
+} from './lifecycle.js';
 import type {
   AccountFact,
   LocalSubmissionAcceptedFact,
@@ -78,6 +83,12 @@ import type {
   SnapshotCoverage,
   SnapshotInput,
 } from './types.js';
+import type {
+  ExchangeAccountStateStoreOptions,
+  LifecycleFilter,
+  LifecycleIdentity,
+} from './lifecycle.js';
+import type { ManagedOrderParser } from './plugins.js';
 import { copyScope, createScopeKey, isSameScope } from './utils.js';
 
 interface ScopeState {
@@ -111,6 +122,20 @@ type Row =
  */
 export class ExchangeAccountStateStore {
   private readonly scopes = new Map<string, ScopeState>();
+  private readonly managedOrderParsers: ManagedOrderParser[];
+
+  constructor(options: ExchangeAccountStateStoreOptions = {}) {
+    this.managedOrderParsers = [...(options.managedOrderParsers ?? [])];
+  }
+
+  /**
+   * Register a parser that can read project-owned order metadata from normalized
+   * order rows, usually from client order ids.
+   */
+  registerManagedOrderParser(parser: ManagedOrderParser): this {
+    this.managedOrderParsers.push(parser);
+    return this;
+  }
 
   /**
    * Sync a REST-style position snapshot. By default, absent positions in the
@@ -422,6 +447,31 @@ export class ExchangeAccountStateStore {
     );
   }
 
+  /**
+   * Return current position lifecycles, optionally filtered by symbol, side, or
+   * lifecycle status.
+   */
+  getLifecycles(
+    scope: AccountScope,
+    filter: LifecycleFilter = {},
+  ): PositionLifecycle[] {
+    return this.getAccount(scope).lifecycles.filter((lifecycle) =>
+      lifecycleMatchesFilter(lifecycle, filter),
+    );
+  }
+
+  /**
+   * Return one lifecycle. If only a symbol is supplied and multiple hedge-mode
+   * sides match, this returns `undefined` instead of guessing.
+   */
+  getLifecycle(
+    scope: AccountScope,
+    identity: LifecycleIdentity,
+  ): PositionLifecycle | undefined {
+    const matches = this.getLifecycles(scope, identity);
+    return matches.length === 1 ? matches[0] : undefined;
+  }
+
   ingest(input: AccountFact): ChangeSet;
   ingest(inputs: AccountFact[]): ChangeSet[];
   /**
@@ -517,7 +567,7 @@ export class ExchangeAccountStateStore {
       case 'openOrders':
         this.applyRows(
           state.openOrders,
-          input.rows,
+          this.prepareOpenOrderRows(input.rows),
           input,
           isNormalizedOrder,
           getOrderKey,
@@ -579,6 +629,10 @@ export class ExchangeAccountStateStore {
         state.watermarks[input.subject],
       ) ||
       hydrationNeedsCleared > 0;
+
+    if (input.subject === 'positions' || input.subject === 'openOrders') {
+      this.reconcileLifecycles(state, input.scope, changeSet);
+    }
 
     return changeSet;
   }
@@ -642,19 +696,20 @@ export class ExchangeAccountStateStore {
     const changeSet = createEmptyChangeSet(input.scope);
     const confidenceBefore = state.confidence;
 
-    if (!isSameScope(input.scope, input.order)) {
+    const order = this.prepareOpenOrder(input.order);
+    if (!isSameScope(input.scope, order)) {
       changeSet.warnings.push({
         name: 'local_submission_order_scope_mismatch',
         scope: input.scope,
         message:
           'Ignoring accepted local submission with mismatched order scope.',
-        context: { orderScope: input.order },
+        context: { orderScope: order },
       });
       changeSet.changed = true;
       return changeSet;
     }
 
-    const provisionalOrder = createProvisionalOrder(input);
+    const provisionalOrder = createProvisionalOrder({ ...input, order });
     const existingKey = this.findExistingOrderKey(
       state.openOrders,
       provisionalOrder,
@@ -714,6 +769,8 @@ export class ExchangeAccountStateStore {
       changeSet.confidenceChanged ||
       changeSet.warnings.length > 0;
 
+    this.reconcileLifecycles(state, input.scope, changeSet);
+
     return changeSet;
   }
 
@@ -761,6 +818,8 @@ export class ExchangeAccountStateStore {
     );
     changeSet.changed = true;
 
+    this.reconcileLifecycles(state, input.scope, changeSet);
+
     return changeSet;
   }
 
@@ -804,6 +863,8 @@ export class ExchangeAccountStateStore {
     );
     changeSet.changed = true;
 
+    this.reconcileLifecycles(state, input.scope, changeSet);
+
     return changeSet;
   }
 
@@ -834,6 +895,8 @@ export class ExchangeAccountStateStore {
       });
     }
     changeSet.changed = rowsTerminal > 0 || changeSet.warnings.length > 0;
+
+    this.reconcileLifecycles(state, input.scope, changeSet);
 
     return changeSet;
   }
@@ -1174,6 +1237,47 @@ export class ExchangeAccountStateStore {
     collection.delete(key);
     return 'terminal';
   };
+
+  /**
+   * Enrich normalized app-owned order rows with metadata from registered
+   * parsers before identity/lifecycle logic sees them.
+   */
+  private prepareOpenOrderRows(rows: unknown[]): unknown[] {
+    return rows.map((row) =>
+      isNormalizedOrder(row) ? this.prepareOpenOrder(row) : row,
+    );
+  }
+
+  /**
+   * Apply managed order parsers to a single normalized order row.
+   */
+  private prepareOpenOrder(order: NormalizedOrder): NormalizedOrder {
+    return applyManagedOrderParsers(order, this.managedOrderParsers);
+  }
+
+  /**
+   * Keep lifecycle state derived from the current position/open-order view.
+   */
+  private reconcileLifecycles(
+    state: ScopeState,
+    scope: AccountScope,
+    changeSet: ChangeSet,
+  ): void {
+    const { lifecycles, changes } = reconcilePositionLifecycles({
+      scope,
+      lifecycles: state.lifecycles,
+      positions: Array.from(state.positions.values()),
+      openOrders: Array.from(state.openOrders.values()),
+    });
+
+    if (changes.length === 0) {
+      return;
+    }
+
+    state.lifecycles = lifecycles;
+    changeSet.lifecycleChanges.push(...changes);
+    changeSet.changed = true;
+  }
 
   /**
    * Look up state without creating it, used by reads so unknown scopes remain

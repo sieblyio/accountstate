@@ -86,3 +86,9 @@ export type {
   OrderComparisonPolicy,
   StateInvariant,
 } from './core/plugins.js';
+
+export type {
+  ExchangeAccountStateStoreOptions,
+  LifecycleFilter,
+  LifecycleIdentity,
+} from './core/lifecycle.js';

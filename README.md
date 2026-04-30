@@ -161,6 +161,28 @@ if (!account.readyToTrade) {
 planner.plan(account);
 ```
 
+Lifecycles are tracked automatically from normalized positions. They give
+strategy-owned order managers a stable `lifecycleEpoch` and
+`replacementGeneration` without requiring application code to drive a separate
+state machine.
+
+```typescript
+const lifecycle = state.getLifecycle(scope, {
+  symbol: 'BTCUSDT',
+  exchangePositionSide: 'BOTH',
+});
+```
+
+If your client order IDs encode ownership metadata, register a small parser once:
+
+```typescript
+state.registerManagedOrderParser({
+  parse(order) {
+    return parseMyManagedClientId(order.customClientOrderId);
+  },
+});
+```
+
 When using exchange adapters, the intended shape is even simpler: the adapter
 normalizes raw REST responses or WebSocket events, and `ingest()` applies the
 resulting account facts in order.
