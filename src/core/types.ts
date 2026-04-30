@@ -1,0 +1,315 @@
+export type DecimalString = string;
+export type TimestampMs = number;
+
+export type ExchangeId = string;
+export type AccountId = string;
+export type ProductId = string;
+
+export interface AccountScope {
+  exchange: ExchangeId;
+  accountId: AccountId;
+  product: ProductId;
+  environment?: 'mainnet' | 'testnet' | 'demo' | string;
+}
+
+export type StateSource =
+  | 'rest'
+  | 'ws'
+  | 'local'
+  | 'replay'
+  | 'manual'
+  | 'test';
+
+export interface Provenance {
+  source: StateSource;
+  receivedAtMs: TimestampMs;
+  exchangeEventTimeMs?: TimestampMs;
+  snapshotId?: string;
+  eventId?: string;
+  sequence?: string | number;
+}
+
+export type StrategySide = 'LONG' | 'SHORT' | 'FLAT';
+export type OrderStrategySide = Exclude<StrategySide, 'FLAT'>;
+export type OrderOwner = 'app' | 'manual' | 'unknown';
+
+export interface ManagedOrderMetadata {
+  strategyId: string;
+  role: 'DCA' | 'TP' | 'SL' | 'TRAIL' | string;
+  step?: number;
+  lifecycleEpoch?: string;
+  replacementGeneration?: number;
+  exchangePositionSide?: string;
+  strategySide?: OrderStrategySide;
+}
+
+export interface NormalizedPosition extends AccountScope {
+  symbol: string;
+  exchangePositionSide: string;
+  strategySide: StrategySide;
+  quantity: DecimalString;
+  signedQuantity?: DecimalString;
+  averageEntry?: DecimalString;
+  markPrice?: DecimalString;
+  liquidationPrice?: DecimalString;
+  marginMode?: string;
+  leverage?: DecimalString;
+  updatedAtMs: TimestampMs;
+  source: StateSource;
+  provenance?: Provenance;
+  raw?: unknown;
+}
+
+export type NormalizedOrderKind =
+  | 'regular'
+  | 'algo'
+  | 'conditional'
+  | 'oco'
+  | 'unknown';
+
+export type NormalizedOrderStatus =
+  | 'new'
+  | 'partially_filled'
+  | 'filled'
+  | 'cancelled'
+  | 'expired'
+  | 'rejected'
+  | 'pending_cancel'
+  | 'provisional'
+  | 'stale'
+  | 'unknown';
+
+export interface NormalizedOrder extends AccountScope {
+  symbol: string;
+  kind: NormalizedOrderKind;
+  exchangeOrderId?: string;
+  customClientOrderId?: string;
+  clientAlgoId?: string;
+  exchangeAlgoId?: string;
+  side: 'BUY' | 'SELL';
+  type: string;
+  status: NormalizedOrderStatus;
+  exchangePositionSide?: string;
+  strategySide?: OrderStrategySide;
+  quantity?: DecimalString;
+  executedQuantity?: DecimalString;
+  remainingQuantity?: DecimalString;
+  price?: DecimalString;
+  averagePrice?: DecimalString;
+  triggerPrice?: DecimalString;
+  reduceOnly?: boolean;
+  closePosition?: boolean;
+  timeInForce?: string;
+  workingType?: string;
+  priceProtect?: boolean;
+  owner?: OrderOwner;
+  metadata?: ManagedOrderMetadata;
+  acceptedAtMs?: TimestampMs;
+  createdAtMs?: TimestampMs;
+  updatedAtMs: TimestampMs;
+  source: StateSource;
+  provenance?: Provenance;
+  raw?: unknown;
+}
+
+export interface NormalizedBalance extends AccountScope {
+  asset: string;
+  walletBalance?: DecimalString;
+  availableBalance?: DecimalString;
+  lockedBalance?: DecimalString;
+  unrealizedPnl?: DecimalString;
+  updatedAtMs: TimestampMs;
+  source: StateSource;
+  provenance?: Provenance;
+  raw?: unknown;
+}
+
+export interface NormalizedFill extends AccountScope {
+  symbol: string;
+  exchangeTradeId?: string;
+  exchangeOrderId?: string;
+  customClientOrderId?: string;
+  clientAlgoId?: string;
+  side: 'BUY' | 'SELL';
+  price: DecimalString;
+  quantity: DecimalString;
+  quoteQuantity?: DecimalString;
+  fee?: DecimalString;
+  feeAsset?: string;
+  realizedPnl?: DecimalString;
+  exchangePositionSide?: string;
+  strategySide?: OrderStrategySide;
+  executedAtMs: TimestampMs;
+  updatedAtMs: TimestampMs;
+  source: StateSource;
+  provenance?: Provenance;
+  raw?: unknown;
+}
+
+export interface PositionLifecycle extends AccountScope {
+  symbol: string;
+  exchangePositionSide: string;
+  strategySide: OrderStrategySide;
+  lifecycleEpoch: string;
+  replacementGeneration: number;
+  openedAtMs?: TimestampMs;
+  lastQuantity?: DecimalString;
+  lastAverageEntry?: DecimalString;
+  status: 'open' | 'closing' | 'closed' | 'cleanup_pending' | 'settled';
+}
+
+export type ConfidenceState =
+  | 'unknown'
+  | 'local_only'
+  | 'stream_only'
+  | 'rest_hydrated'
+  | 'rest_and_stream'
+  | 'stale'
+  | 'conflicted'
+  | 'paused';
+
+export interface AccountViewConfidence {
+  positions: ConfidenceState;
+  openOrders: ConfidenceState;
+  balances: ConfidenceState;
+  fills: ConfidenceState;
+  filters?: ConfidenceState;
+  stream?: ConfidenceState;
+}
+
+export interface SubjectWatermark {
+  source: StateSource;
+  asOfMs: TimestampMs;
+  receivedAtMs?: TimestampMs;
+  snapshotId?: string;
+  eventId?: string;
+  sequence?: string | number;
+}
+
+export interface AccountWatermarks {
+  positions?: SubjectWatermark;
+  openOrders?: SubjectWatermark;
+  balances?: SubjectWatermark;
+  fills?: SubjectWatermark;
+  filters?: SubjectWatermark;
+  stream?: SubjectWatermark;
+}
+
+export interface AccountView {
+  scope: AccountScope;
+  positions: NormalizedPosition[];
+  openOrders: NormalizedOrder[];
+  balances: NormalizedBalance[];
+  fills: NormalizedFill[];
+  lifecycles: PositionLifecycle[];
+  confidence: AccountViewConfidence;
+  watermarks: AccountWatermarks;
+  needsHydration: boolean;
+  hydrationReasons: string[];
+}
+
+export type SnapshotSubject =
+  | 'positions'
+  | 'openOrders'
+  | 'balances'
+  | 'fills'
+  | 'filters';
+
+export type SnapshotMode = 'replace-scope' | 'replace-symbols' | 'upsert-only';
+
+export interface SnapshotCoverage {
+  symbols?: string[];
+  orderKinds?: NormalizedOrderKind[];
+  positionSides?: string[];
+  assets?: string[];
+}
+
+export interface SnapshotInput<T> {
+  scope: AccountScope;
+  subject: SnapshotSubject;
+  mode: SnapshotMode;
+  rows: T[];
+  asOfMs: TimestampMs;
+  source: StateSource;
+  coverage?: SnapshotCoverage;
+  provenance?: Provenance;
+}
+
+export interface LifecycleChange {
+  lifecycle: PositionLifecycle;
+  change:
+    | 'created'
+    | 'updated'
+    | 'generation_advanced'
+    | 'cleanup_pending'
+    | 'settled';
+}
+
+export interface StateWarning {
+  name: string;
+  scope: AccountScope;
+  message: string;
+  context?: Record<string, unknown>;
+}
+
+export interface InvariantViolation {
+  name: string;
+  severity: 'error' | 'warn';
+  scope: AccountScope;
+  message: string;
+  context?: Record<string, unknown>;
+}
+
+export interface ChangeSet {
+  scope: AccountScope;
+  changed: boolean;
+  rowsInserted: number;
+  rowsUpdated: number;
+  rowsTerminal: number;
+  rowsStale: number;
+  confidenceChanged: boolean;
+  lifecycleChanges: LifecycleChange[];
+  warnings: StateWarning[];
+  invariantViolations: InvariantViolation[];
+}
+
+export type HydrationSubject =
+  | 'positions'
+  | 'openOrders'
+  | 'balances'
+  | 'fills'
+  | 'filters';
+
+export type HydrationReason =
+  | 'startup'
+  | 'stream_reconnected'
+  | 'stream_gap'
+  | 'submission_unknown'
+  | 'provisional_stale'
+  | 'conflicting_state'
+  | 'operator_requested'
+  | 'ttl_expired';
+
+export interface HydrationNeed {
+  scope: AccountScope;
+  subject: HydrationSubject;
+  reason: HydrationReason;
+  priority: 'immediate' | 'soon' | 'background';
+  requestedAtMs?: TimestampMs;
+}
+
+export interface OrderIdentity {
+  exchangeOrderId?: string;
+  customClientOrderId?: string;
+  clientAlgoId?: string;
+  exchangeAlgoId?: string;
+}
+
+export type TerminalReason =
+  | 'filled'
+  | 'cancelled'
+  | 'expired'
+  | 'rejected'
+  | 'absent_from_open_order_snapshot'
+  | 'unknown_order_cancel_absent_from_hydration'
+  | 'manual_operator_terminal';

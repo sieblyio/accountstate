@@ -4,3 +4,67 @@ export * from './util/position.math.js';
 export * from './util/position.types.js';
 export * from './util/reporting.js';
 export * from './AccountStateStore.js';
+
+export type {
+  AccountId,
+  AccountScope,
+  AccountView,
+  AccountViewConfidence,
+  AccountWatermarks,
+  ChangeSet,
+  ConfidenceState,
+  DecimalString,
+  ExchangeId,
+  HydrationNeed,
+  HydrationReason,
+  HydrationSubject,
+  InvariantViolation,
+  LifecycleChange,
+  ManagedOrderMetadata,
+  NormalizedBalance,
+  NormalizedFill,
+  NormalizedOrder,
+  NormalizedOrderKind,
+  NormalizedOrderStatus,
+  NormalizedPosition,
+  OrderIdentity,
+  OrderOwner,
+  OrderStrategySide,
+  PositionLifecycle,
+  ProductId,
+  Provenance,
+  SnapshotCoverage,
+  SnapshotInput,
+  SnapshotMode,
+  SnapshotSubject,
+  StateSource,
+  StateWarning,
+  StrategySide,
+  SubjectWatermark,
+  TerminalReason,
+  TimestampMs,
+} from './core/types.js';
+
+export type {
+  AccountFact,
+  HydrationGapFact,
+  LocalCancelAcceptedFact,
+  LocalSubmissionAcceptedFact,
+  LocalSubmissionRejectedFact,
+  LocalSubmissionUnknownFact,
+  NormalizedPrivateEvent,
+  NormalizedSubmissionError,
+  PrivateStreamEventFact,
+  RestSnapshotFact,
+  SnapshotRow,
+  StreamHealthFact,
+  TerminalEvidenceFact,
+} from './core/facts.js';
+
+export type {
+  ComparisonContext,
+  ComparisonResult,
+  ManagedOrderParser,
+  OrderComparisonPolicy,
+  StateInvariant,
+} from './core/plugins.js';
