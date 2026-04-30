@@ -1,8 +1,11 @@
 import { createRequire } from 'node:module';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { AccountStateStore } from '../../src/AccountStateStore';
 import { ExchangeAccountStateStore } from '../../src/core/ExchangeAccountStateStore';
 import packageJson from '../../package.json';
+import * as sourceBinance from '../../src/adapters/binance';
 import * as sourceConformance from '../../src/conformance';
 import * as sourceCore from '../../src/core';
 import * as sourceRoot from '../../src/index';
@@ -59,6 +62,11 @@ describe('root package exports', () => {
       require: './dist/cjs/conformance.js',
       types: './dist/mjs/conformance.d.ts',
     });
+    expect(packageJson.exports['./binance']).toEqual({
+      import: './dist/mjs/adapters/binance/index.js',
+      require: './dist/cjs/adapters/binance/index.js',
+      types: './dist/mjs/adapters/binance/index.d.ts',
+    });
   });
 
   it('loads the built CommonJS package root after build', () => {
@@ -90,5 +98,36 @@ describe('root package exports', () => {
     expect(builtConformance.defaultAccountStateFixtures.length).toBeGreaterThan(
       0,
     );
+  });
+
+  it('loads the built CommonJS Binance subpath after build', () => {
+    const builtBinance = requireFromTest(
+      'accountstate/binance',
+    ) as typeof sourceBinance;
+
+    expect(typeof builtBinance.normalizeBinanceUsdmPosition).toBe('function');
+    expect(typeof builtBinance.binance.rest.positions).toBe('function');
+  });
+
+  it('emits no runtime Binance SDK import in package root or adapter JS', () => {
+    const files = [
+      join(__dirname, '../../dist/cjs/index.js'),
+      join(__dirname, '../../dist/cjs/adapters/binance/index.js'),
+      join(__dirname, '../../dist/cjs/adapters/binance/types.js'),
+      join(__dirname, '../../dist/cjs/adapters/binance/normalize.js'),
+      join(__dirname, '../../dist/mjs/index.js'),
+      join(__dirname, '../../dist/mjs/adapters/binance/index.js'),
+      join(__dirname, '../../dist/mjs/adapters/binance/types.js'),
+      join(__dirname, '../../dist/mjs/adapters/binance/normalize.js'),
+    ];
+
+    for (const file of files) {
+      expect(existsSync(file)).toBe(true);
+      const js = readFileSync(file, 'utf8');
+      expect(js).not.toContain("from 'binance'");
+      expect(js).not.toContain('from "binance"');
+      expect(js).not.toContain("require('binance')");
+      expect(js).not.toContain('require("binance")');
+    }
   });
 });

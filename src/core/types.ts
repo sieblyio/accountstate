@@ -312,6 +312,7 @@ export type OrderIdentity =
 
 export type TerminalReason =
   | 'filled'
+  | 'triggered'
   | 'cancelled'
   | 'expired'
   | 'rejected'

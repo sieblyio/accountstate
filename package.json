@@ -26,6 +26,11 @@
       "import": "./dist/mjs/conformance.js",
       "require": "./dist/cjs/conformance.js",
       "types": "./dist/mjs/conformance.d.ts"
+    },
+    "./binance": {
+      "import": "./dist/mjs/adapters/binance/index.js",
+      "require": "./dist/cjs/adapters/binance/index.js",
+      "types": "./dist/mjs/adapters/binance/index.d.ts"
     }
   },
   "type": "module",
@@ -51,8 +56,10 @@
     "@eslint/js": "^10.0.1",
     "@types/jest": "^30.0.0",
     "@types/node": "^25.6.0",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.59.1",
     "@typescript-eslint/parser": "^8.59.1",
+    "binance": "^3.5.7",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
@@ -62,6 +69,14 @@
     "ts-loader": "^9.5.7",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"
+  },
+  "peerDependencies": {
+    "binance": "^3.5.7"
+  },
+  "peerDependenciesMeta": {
+    "binance": {
+      "optional": true
+    }
   },
   "funding": {
     "type": "individual",

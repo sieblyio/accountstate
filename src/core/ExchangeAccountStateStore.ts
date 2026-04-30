@@ -1119,6 +1119,14 @@ export class ExchangeAccountStateStore {
       const key = getKey(row);
       seenKeys.add(key);
 
+      if (input.subject === 'positions' && isTerminalPosition(row)) {
+        if (collection.delete(key)) {
+          changeSet.rowsTerminal++;
+          changeSet.changed = true;
+        }
+        continue;
+      }
+
       const existingKey = findExistingKey(collection, row);
       const existing = existingKey ? collection.get(existingKey) : undefined;
       if (!existing) {
@@ -1502,6 +1510,17 @@ function isActiveOrProvisionalOrder(order: NormalizedOrder): boolean {
     order.status === 'pending_cancel' ||
     order.status === 'provisional'
   );
+}
+
+function isTerminalPosition(row: Row): row is NormalizedPosition {
+  return (
+    isNormalizedPosition(row) &&
+    (row.strategySide === 'FLAT' || isZeroDecimalString(row.quantity))
+  );
+}
+
+function isZeroDecimalString(value: string): boolean {
+  return Number(value) === 0;
 }
 
 /**

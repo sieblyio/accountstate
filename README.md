@@ -155,12 +155,28 @@ normalizes raw REST responses or WebSocket events, and `ingest()` applies the
 resulting account facts in order.
 
 ```typescript
+import { binance } from 'accountstate/binance';
+
 state.ingest(binance.rest.openOrders(scope, rawOpenOrdersResponse));
+state.ingest(binance.rest.openAlgoOrders(scope, rawOpenAlgoOrdersResponse));
+state.ingest(binance.rest.positions(scope, rawPositionsResponse));
 state.ingest(binance.ws.userDataEvent(scope, rawUserDataEvent));
 
 const orders = state.getOpenOrders(scope);
 const order = state.getOrder(scope, { customClientOrderId: 'my-client-id' });
 ```
+
+For Binance USD-M user-data streams, `binance.ws.userDataEvent()` handles
+`ACCOUNT_UPDATE` balance/position updates, `ORDER_TRADE_UPDATE` order/fill
+updates, Algo updates, and lightweight trade events. When an Algo order
+triggers, Binance emits normal order updates for the generated order; the
+adapter keeps that regular order separate from the terminal Algo row.
+
+The Binance adapter is pure: it does not create REST clients, WebSocket clients,
+timers, retries, API keys, or stream sessions. It only accepts objects you
+already received from the Binance SDK/API and returns account-state facts.
+Because `accountstate/binance` is typed against the official `binance` SDK,
+install `binance` in projects that import that subpath.
 
 `ingest`, `getSyncRequests`, and `getAccountView` are advanced escape hatches
 for fixtures, replay, and adapter authors. Lower-level reducer primitives such
@@ -186,6 +202,9 @@ if (results.some((result) => !result.passed)) {
   throw new Error('Account-state conformance failed');
 }
 ```
+
+The Binance subpath also exports `binanceAccountStateFixtures`, a small
+sample-backed fixture pack for adapter validation.
 
 ## Lightweight AccountStateStore API
 
