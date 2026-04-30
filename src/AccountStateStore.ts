@@ -191,19 +191,25 @@ export class AccountStateStore<
     let totalHedged = 0;
 
     for (const symbol in this.accountPositionState) {
-      let positionsForSymbol = 0;
+      let hasLongPosition = false;
+      let hasShortPosition = false;
       for (const posSide in this.accountPositionState[symbol]) {
         const position =
           this.accountPositionState[symbol][posSide as EnginePositionSide];
         if (position?.assetQty) {
           total++;
-          positionsForSymbol++;
+          if (posSide === 'LONG') {
+            hasLongPosition = true;
+          }
+          if (posSide === 'SHORT') {
+            hasShortPosition = true;
+          }
         }
+      }
 
-        if (positionsForSymbol === 2) {
-          console.log(`${symbol} has a long and short position!`);
-          totalHedged++;
-        }
+      if (hasLongPosition && hasShortPosition) {
+        console.log(`${symbol} has a long and short position!`);
+        totalHedged++;
       }
     }
 

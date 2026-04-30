@@ -2,7 +2,12 @@
   "extends": "../tsconfig.json",
   "exclude": ["node_modules", "dist", "**/*spec.ts"],
   "compilerOptions": {
+    "rootDir": "..",
+    "outDir": "../dist/test",
+    "declaration": false,
+    "ignoreDeprecations": "6.0",
+    "isolatedModules": true,
     "strictNullChecks": false
   },
-  "include": ["test/**/*.ts"]
+  "include": ["../src/**/*.ts", "./**/*.ts"]
 }

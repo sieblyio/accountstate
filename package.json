@@ -30,7 +30,7 @@
     "clean": "tsc --build --clean tsconfig.build.json",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-    "test": "jest --passWithNoTests",
+    "test": "tsc -p test/tsconfig.test.json --noEmit && npm run build && jest --passWithNoTests",
     "testOther": "node --test --loader ts-node/esm src/**/*.test.ts",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
