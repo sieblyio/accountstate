@@ -48,13 +48,13 @@ into it:
 - **Readiness** through `readyToTrade`, trust flags, and actionable
   `syncRequests`.
 - **Exchange adapter payloads** through subpaths such as `accountstate/binance`,
-  so raw REST responses and user-data events can be dumped into the store.
+  so raw REST responses and user-data events can be passed into the store.
 - **Advanced strategy metadata** such as lifecycle epochs and managed-order
   metadata when your app needs them.
 
 The store is intentionally exchange-client agnostic. You can map exchange data
-yourself, or use an exchange-specific adapter as a dumping ground for raw REST
-responses and private WebSocket events as your client receives them.
+yourself, or use an exchange-specific adapter to pass raw REST responses and
+private WebSocket events into the store as your client receives them.
 `accountstate` keeps the current account view coherent either way.
 
 ## Installation
@@ -107,7 +107,7 @@ state.onBalanceUpdate(scope, normalizedBalanceUpdate);
 // Reconnects or known stream gaps make the account request a REST refresh.
 state.streamReconnected(scope, { reason: 'private stream restarted' });
 
-const account = state.getAccount(scope); // ordinary app read model
+const account = state.getAccount(scope); // current account view
 
 if (!account.readyToTrade) {
   for (const request of account.syncRequests) {
@@ -233,12 +233,12 @@ const results = runAccountStateFixtures({
 ```
 
 Use invariants as a read-only health check in tests, startup checks, or before
-planner passes:
+trading logic runs:
 
 ```typescript
 const violations = state.checkInvariants(scope);
 if (violations.some((violation) => violation.severity === 'error')) {
-  throw new Error('Account state is not safe to plan from');
+  throw new Error('Account state is not ready for trading decisions');
 }
 ```
 
@@ -246,6 +246,7 @@ if (violations.some((violation) => violation.severity === 'error')) {
 
 - [Exchange account store](./docs/exchange-account-state-store.md)
 - [Binance adapter](./docs/adapters/binance.md)
+- [Binance USD-M integration playbook](./docs/integration-playbook-binance-usdm.md)
 - [Conformance fixtures](./docs/conformance.md)
 - [Legacy lightweight store](./docs/legacy-account-state-store.md)
 
@@ -492,10 +493,13 @@ export class PersistedAccountStateStore extends AccountStateStore<EnginePosition
 ## Running Examples
 
 The repository includes lightweight `AccountStateStore` examples in the
-[./examples](./examples) folder. The exchange-account API is documented in
+[./examples](./examples) folder, plus a modern Binance USD-M example using
+`ExchangeAccountStateStore`. The exchange-account API is documented in
 [Exchange account store](./docs/exchange-account-state-store.md), and the
-Binance adapter path is documented in
-[Binance adapter](./docs/adapters/binance.md).
+implemented Binance adapter path is documented in
+[Binance adapter](./docs/adapters/binance.md). The Binance startup, WebSocket,
+and reconnect workflow is documented in
+[Binance USD-M integration playbook](./docs/integration-playbook-binance-usdm.md).
 
 ### Binance Futures
 
@@ -508,8 +512,12 @@ Binance adapter path is documented in
 
 2. Run example:
    ```bash
-   tsx examples/binance-futures-usdm.ts
+   tsx examples/binance-usdm-exchange-account-state.ts
    ```
+
+The older `examples/binance-futures-usdm.ts` file demonstrates the legacy
+`AccountStateStore` API. Use the exchange-account example above for new
+exchange integrations.
 
 ### Bybit Futures
 

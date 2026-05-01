@@ -223,10 +223,28 @@ export interface FillFilter extends OrderIdentityFilter {
   exchangeTradeId?: string;
 }
 
+export type AccountReadinessSubject =
+  | 'positions'
+  | 'openOrders'
+  | 'balances'
+  | 'fills';
+
 /**
  * Options controlling which subjects block `readyToTrade`.
  */
 export interface ExchangeAccountReadinessOptions {
+  /**
+   * Subjects that must be trusted before `readyToTrade` becomes true.
+   *
+   * Defaults to positions, open orders, and balances. Fills are optional unless
+   * `requireFills` is true or `fills` is included here.
+   */
+  requiredSubjects?: AccountReadinessSubject[];
+  /**
+   * Compatibility shortcut for requiring current fills before trading.
+   *
+   * Prefer `requiredSubjects` for new integrations.
+   */
   requireFills?: boolean;
 }
 
@@ -414,18 +432,20 @@ export function createExchangeAccount(
   const canTrustOpenOrders = isTrustedForPlanning(view.confidence.openOrders);
   const canTrustBalances = isTrustedForPlanning(view.confidence.balances);
   const canTrustFills = isTrustedForPlanning(view.confidence.fills);
-  const readyToTrade =
-    canTrustPositions &&
-    canTrustOpenOrders &&
-    canTrustBalances &&
-    (!options.requireFills || canTrustFills);
-  const accountSyncRequests = options.requireFills
-    ? syncRequests.map((request) =>
-        request.subject === 'fills' && request.priority === 'background'
-          ? { ...request, priority: 'immediate' as const }
-          : request,
-      )
-    : syncRequests;
+  const trustBySubject: Record<AccountReadinessSubject, boolean> = {
+    positions: canTrustPositions,
+    openOrders: canTrustOpenOrders,
+    balances: canTrustBalances,
+    fills: canTrustFills,
+  };
+  const requiredSubjects = getRequiredSubjects(options);
+  const readyToTrade = requiredSubjects.every(
+    (subject) => trustBySubject[subject],
+  );
+  const accountSyncRequests = promoteRequiredSyncRequests(
+    syncRequests,
+    requiredSubjects,
+  );
 
   return {
     scope: copyScope(view.scope),
@@ -455,6 +475,7 @@ export function createUnsupportedFactChangeSet(
   return {
     scope: copyScope(scope),
     changed: true,
+    changedSubjects: [],
     itemsAdded: 0,
     itemsUpdated: 0,
     itemsRemoved: 0,
@@ -495,5 +516,51 @@ function isTrustedForPlanning(value: ConfidenceState): boolean {
     value !== 'stale' &&
     value !== 'conflicted' &&
     value !== 'paused'
+  );
+}
+
+function getRequiredSubjects(
+  options: ExchangeAccountReadinessOptions,
+): AccountReadinessSubject[] {
+  if (options.requiredSubjects) {
+    return [...new Set(options.requiredSubjects)];
+  }
+
+  const subjects: AccountReadinessSubject[] = [
+    'positions',
+    'openOrders',
+    'balances',
+  ];
+
+  if (options.requireFills) {
+    subjects.push('fills');
+  }
+
+  return subjects;
+}
+
+function promoteRequiredSyncRequests(
+  syncRequests: SyncRequest[],
+  requiredSubjects: AccountReadinessSubject[],
+): SyncRequest[] {
+  const required = new Set<AccountReadinessSubject>(requiredSubjects);
+
+  return syncRequests.map((request) =>
+    isAccountReadinessSubject(request.subject) &&
+    required.has(request.subject) &&
+    request.priority === 'background'
+      ? { ...request, priority: 'immediate' as const }
+      : request,
+  );
+}
+
+function isAccountReadinessSubject(
+  subject: SyncRequest['subject'],
+): subject is AccountReadinessSubject {
+  return (
+    subject === 'positions' ||
+    subject === 'openOrders' ||
+    subject === 'balances' ||
+    subject === 'fills'
   );
 }

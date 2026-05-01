@@ -267,6 +267,11 @@ export interface ChangeSet {
    */
   changed: boolean;
   /**
+   * Account subjects affected by this operation. Use this for scheduling
+   * planner or projection work without inspecting reducer internals.
+   */
+  changedSubjects: AccountChangeSubject[];
+  /**
    * Number of account-state items added by this operation.
    */
   itemsAdded: number;
@@ -297,6 +302,8 @@ export type SyncSubject =
   | 'balances'
   | 'fills'
   | 'filters';
+
+export type AccountChangeSubject = SyncSubject | 'lifecycles' | 'sync';
 
 export type SyncReason =
   | 'startup'

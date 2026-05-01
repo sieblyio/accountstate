@@ -35,7 +35,7 @@ state.onBalanceUpdate(scope, normalizedBalanceFromStream);
 const account = state.getAccount(scope);
 ```
 
-`getAccount(scope)` is the read model most app code should use. It contains:
+`getAccount(scope)` is the main account view for application code. It contains:
 
 - `positions`
 - `openOrders`
@@ -47,8 +47,19 @@ const account = state.getAccount(scope);
 
 Positions, open orders, and balances must be trusted before `readyToTrade` is
 true. Fills are background sync by default. Use
-`getAccount(scope, { requireFills: true })` when your planner requires current
-fills before trading.
+`getAccount(scope, { requireFills: true })` when trading decisions require
+current fills.
+
+For workflows that use a smaller data set, pass `requiredSubjects`:
+
+```typescript
+const account = state.getAccount(scope, {
+  requiredSubjects: ['positions', 'openOrders'],
+});
+```
+
+`readyToTrade` is then evaluated against those subjects. Other unknown subjects
+can still appear in `syncRequests` for background refresh.
 
 ## REST Snapshots
 
@@ -175,8 +186,8 @@ Every write method returns a `ChangeSet`:
 ```typescript
 const change = state.syncOpenOrders(scope, openOrders);
 
-if (change.changed) {
-  console.log(change.itemsAdded, change.itemsUpdated, change.itemsRemoved);
+if (change.changedSubjects.includes('openOrders')) {
+  schedulePlannerPass();
 }
 ```
 
@@ -186,6 +197,19 @@ The counters are deliberately broad account-state words:
 - `itemsUpdated`
 - `itemsRemoved`
 - `itemsMarkedStale`
+
+`changedSubjects` identifies the account-state areas affected by the write:
+
+- `positions`
+- `openOrders`
+- `balances`
+- `fills`
+- `lifecycles`
+- `sync`
+
+`positions`, `openOrders`, and `lifecycles` are usually the subjects that
+trigger trading logic. `sync` covers readiness, confidence, watermark, and
+sync-request changes.
 
 ## Advanced APIs
 

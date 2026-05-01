@@ -6,6 +6,9 @@ import {
   WSPositionV5,
 } from 'bybit-api';
 import 'dotenv/config';
+
+// Legacy example for the lightweight AccountStateStore API.
+
 import {
   AccountStateStore,
 } from '../src/AccountStateStore.js';

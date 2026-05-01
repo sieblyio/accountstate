@@ -248,6 +248,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
 
     expect(notFoundChange).toMatchObject({
       changed: true,
+      changedSubjects: ['openOrders'],
       itemsRemoved: 1,
       warnings: [],
     });
@@ -263,6 +264,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
 
     expect(cancelChange).toMatchObject({
       changed: true,
+      changedSubjects: ['openOrders'],
       itemsRemoved: 1,
       warnings: [],
     });
@@ -281,6 +283,23 @@ describe('ExchangeAccountStateStore exchange account API', () => {
       'fills',
     ]);
 
+    state.syncPositions(scope, [position()], { asOfMs: 1 });
+    state.syncOpenOrders(scope, [], { asOfMs: 1 });
+
+    const positionsAndOrders = state.getAccount(scope, {
+      requiredSubjects: ['positions', 'openOrders'],
+    });
+    expect(positionsAndOrders.readyToTrade).toBe(true);
+    expect(positionsAndOrders.canTrustPositions).toBe(true);
+    expect(positionsAndOrders.canTrustOpenOrders).toBe(true);
+    expect(positionsAndOrders.canTrustBalances).toBe(false);
+    expect(positionsAndOrders.canTrustFills).toBe(false);
+    expect(positionsAndOrders.syncRequests).toEqual([
+      { scope, subject: 'balances', reason: 'startup', priority: 'immediate' },
+      { scope, subject: 'fills', reason: 'startup', priority: 'background' },
+    ]);
+    expect(state.getAccount(scope).readyToTrade).toBe(false);
+
     syncRequiredSubjects(state);
 
     const synced = state.getAccount(scope);
@@ -295,6 +314,13 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     const requiresFills = state.getAccount(scope, { requireFills: true });
     expect(requiresFills.readyToTrade).toBe(false);
     expect(requiresFills.syncRequests).toEqual([
+      { scope, subject: 'fills', reason: 'startup', priority: 'immediate' },
+    ]);
+    const explicitlyRequiresFills = state.getAccount(scope, {
+      requiredSubjects: ['positions', 'openOrders', 'fills'],
+    });
+    expect(explicitlyRequiresFills.readyToTrade).toBe(false);
+    expect(explicitlyRequiresFills.syncRequests).toEqual([
       { scope, subject: 'fills', reason: 'startup', priority: 'immediate' },
     ]);
 
@@ -447,7 +473,11 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     const changeSets = state.ingest([secondBalance]);
 
     expect(firstChangeSet.itemsAdded).toBe(1);
+    expect(firstChangeSet.changedSubjects).toEqual(['balances', 'sync']);
     expect(changeSets.map((changeSet) => changeSet.itemsUpdated)).toEqual([1]);
+    expect(changeSets.map((changeSet) => changeSet.changedSubjects)).toEqual([
+      ['balances', 'sync'],
+    ]);
     expect(state.getAccount(scope).balances).toEqual([
       balance({ walletBalance: '1200.00' }),
     ]);

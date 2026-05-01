@@ -9,5 +9,8 @@
       }
     },
     "include": ["./**/*"],
-    "exclude": ["node_modules"]
+    "exclude": [
+      "node_modules",
+      "bybit-futures.ts" // Legacy example excluded from active example typecheck
+    ]
   }

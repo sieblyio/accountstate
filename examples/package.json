@@ -3,7 +3,8 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "start:binance": "ts-node --esm binance-futures-usdm.ts"
+        "start:binance": "ts-node --esm binance-usdm-exchange-account-state.ts",
+        "start:binance:legacy": "ts-node --esm binance-futures-usdm.ts"
     },
     "dependencies": {
         "binance": "^2.15.22",

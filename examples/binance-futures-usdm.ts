@@ -9,6 +9,10 @@ import {
   WsMessageFuturesUserDataTradeUpdateEventFormatted
 } from 'binance';
 import 'dotenv/config';
+
+// Legacy example for the lightweight AccountStateStore API.
+// New exchange integrations should use binance-usdm-exchange-account-state.ts.
+
 import {
   AccountStateStore,
 } from '../src/AccountStateStore.js';
@@ -155,7 +159,7 @@ async function main() {
     }
   });
   
-  wsClient.on('error', (error) => {
+  wsClient.on('exception', (error: unknown) => {
     console.error(new Date(), 'WebSocket error:', error);
   });
   

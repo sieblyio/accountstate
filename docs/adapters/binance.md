@@ -6,6 +6,10 @@ It normalizes Binance SDK/API payloads into account-state updates. It does not
 create REST clients, WebSocket clients, listen keys, timers, API keys, retry
 loops, or reconnect logic.
 
+For a complete Binance USD-M account-state workflow using startup REST sync,
+private WebSocket updates, local submission outcomes, and reconnect resync, see
+[Binance USD-M integration playbook](../integration-playbook-binance-usdm.md).
+
 ## Install
 
 ```bash
@@ -160,4 +164,3 @@ const results = runAccountStateFixtures({
 These fixtures cover representative USD-M REST and user-data behavior,
 including partial fills, Algo trigger lifecycle, close-position canonicalization,
 and real unknown-order error payloads.
-

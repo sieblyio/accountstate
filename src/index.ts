@@ -8,6 +8,7 @@ export * from './core/ExchangeAccountStateStore.js';
 
 export type {
   AccountId,
+  AccountChangeSubject,
   AccountScope,
   ChangeSet,
   DecimalString,
@@ -40,6 +41,7 @@ export type {
 } from './core/types.js';
 
 export type {
+  AccountReadinessSubject,
   OrderCancelledInput,
   ExchangeAccount,
   ExchangeAccountReadinessOptions,

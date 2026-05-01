@@ -18,6 +18,7 @@ export type {
 
 export type {
   AccountId,
+  AccountChangeSubject,
   AccountScope,
   AccountView,
   AccountViewConfidence,
@@ -58,6 +59,7 @@ export type {
 } from './types.js';
 
 export type {
+  AccountReadinessSubject,
   ExchangeAccount,
   ExchangeAccountReadinessOptions,
   FillFilter,

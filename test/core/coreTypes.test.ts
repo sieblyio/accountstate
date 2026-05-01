@@ -187,6 +187,7 @@ describe('core type contracts', () => {
     const changeSet: ChangeSet = {
       scope,
       changed: true,
+      changedSubjects: ['positions', 'sync'],
       itemsAdded: 1,
       itemsUpdated: 0,
       itemsRemoved: 0,

@@ -71,6 +71,7 @@ import type {
 } from './exchangeAccount.js';
 import type {
   AccountScope,
+  AccountChangeSubject,
   AccountView,
   AccountViewConfidence,
   AccountWatermarks,
@@ -511,21 +512,21 @@ export class ExchangeAccountStateStore {
   /**
    * Apply one normalized adapter/replay fact.
    *
-   * For ordinary app workflows, prefer methods such as `syncOpenOrders`,
+   * For typical integrations, prefer methods such as `syncOpenOrders`,
    * `onOrderUpdate`, and `orderAccepted`.
    */
   ingest(input: AccountFact): ChangeSet;
   /**
    * Apply normalized adapter/replay facts in order.
    *
-   * For ordinary app workflows, prefer methods such as `syncOpenOrders`,
+   * For typical integrations, prefer methods such as `syncOpenOrders`,
    * `onOrderUpdate`, and `orderAccepted`.
    */
   ingest(inputs: AccountFact[]): ChangeSet[];
   /**
    * Apply normalized adapter/replay facts.
    *
-   * For ordinary app workflows, prefer methods such as `syncOpenOrders`,
+   * For typical integrations, prefer methods such as `syncOpenOrders`,
    * `onOrderUpdate`, and `orderAccepted`.
    */
   ingest(input: AccountFact | AccountFact[]): ChangeSet | ChangeSet[] {
@@ -567,6 +568,8 @@ export class ExchangeAccountStateStore {
     const state = this.#getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
     const confidenceBefore = state.confidence;
+    const changedBeforeRows = changeSet.changed;
+    const countsBefore = getChangedItemCount(changeSet);
 
     switch (input.subject) {
       case 'positions':
@@ -619,6 +622,13 @@ export class ExchangeAccountStateStore {
         break;
     }
 
+    if (
+      changeSet.changed !== changedBeforeRows ||
+      getChangedItemCount(changeSet) > countsBefore
+    ) {
+      addChangedSubject(changeSet, input.subject);
+    }
+
     const watermarksBefore = state.watermarks;
     state.watermarks = {
       ...state.watermarks,
@@ -639,14 +649,19 @@ export class ExchangeAccountStateStore {
       confidenceBefore,
       state.confidence,
     );
-    changeSet.changed =
-      changeSet.changed ||
+    const syncChanged =
       changeSet.confidenceChanged ||
       !isSameWatermark(
         watermarksBefore[input.subject],
         state.watermarks[input.subject],
       ) ||
       syncRequestsCleared > 0;
+    changeSet.changed =
+      changeSet.changed ||
+      syncChanged;
+    if (syncChanged) {
+      addChangedSubject(changeSet, 'sync');
+    }
 
     if (input.subject === 'positions' || input.subject === 'openOrders') {
       this.#reconcileLifecycles(state, input.scope, changeSet);
@@ -691,11 +706,15 @@ export class ExchangeAccountStateStore {
       confidenceBefore,
       state.confidence,
     );
-    changeSet.changed =
+    const syncChanged =
       changeSet.confidenceChanged ||
       !isSameWatermark(watermarksBefore.stream, state.watermarks.stream) ||
-      syncRequestsChanged ||
-      changeSet.warnings.length > 0;
+      syncRequestsChanged;
+    changeSet.changed =
+      syncChanged || changeSet.warnings.length > 0;
+    if (syncChanged) {
+      addChangedSubject(changeSet, 'sync');
+    }
 
     return changeSet;
   }
@@ -762,6 +781,7 @@ export class ExchangeAccountStateStore {
       state.openOrders.set(key, cloneOrder(provisionalOrder));
       changeSet.itemsAdded++;
       changeSet.changed = true;
+      addChangedSubject(changeSet, 'openOrders');
     } else {
       if (existingKey && existingKey !== key) {
         state.openOrders.delete(existingKey);
@@ -770,6 +790,7 @@ export class ExchangeAccountStateStore {
         state.openOrders.set(key, cloneOrder(provisionalOrder));
         changeSet.itemsUpdated++;
         changeSet.changed = true;
+        addChangedSubject(changeSet, 'openOrders');
       }
     }
 
@@ -785,6 +806,9 @@ export class ExchangeAccountStateStore {
       changeSet.changed ||
       changeSet.confidenceChanged ||
       changeSet.warnings.length > 0;
+    if (changeSet.confidenceChanged) {
+      addChangedSubject(changeSet, 'sync');
+    }
 
     this.#reconcileLifecycles(state, input.scope, changeSet);
 
@@ -807,6 +831,9 @@ export class ExchangeAccountStateStore {
       : 0;
 
     changeSet.itemsRemoved += terminalRows;
+    if (terminalRows > 0) {
+      addChangedSubject(changeSet, 'openOrders');
+    }
     changeSet.warnings.push({
       name: 'local_submission_rejected',
       scope: input.scope,
@@ -834,6 +861,7 @@ export class ExchangeAccountStateStore {
       state.confidence,
     );
     changeSet.changed = true;
+    addChangedSubject(changeSet, 'sync');
 
     this.#reconcileLifecycles(state, input.scope, changeSet);
 
@@ -879,6 +907,7 @@ export class ExchangeAccountStateStore {
       state.confidence,
     );
     changeSet.changed = true;
+    addChangedSubject(changeSet, 'sync');
 
     this.#reconcileLifecycles(state, input.scope, changeSet);
 
@@ -900,6 +929,9 @@ export class ExchangeAccountStateStore {
     );
 
     changeSet.itemsRemoved = itemsRemoved;
+    if (itemsRemoved > 0) {
+      addChangedSubject(changeSet, 'openOrders');
+    }
     if (itemsRemoved === 0) {
       changeSet.warnings.push({
         name: 'terminal_order_not_found',
@@ -1328,6 +1360,7 @@ export class ExchangeAccountStateStore {
     state.lifecycles = lifecycles;
     changeSet.lifecycleChanges.push(...changes);
     changeSet.changed = true;
+    addChangedSubject(changeSet, 'lifecycles');
   }
 
   /**
@@ -1532,6 +1565,7 @@ function createEmptyChangeSet(scope: AccountScope): ChangeSet {
   return {
     scope: copyScope(scope),
     changed: false,
+    changedSubjects: [],
     itemsAdded: 0,
     itemsUpdated: 0,
     itemsRemoved: 0,
@@ -1540,6 +1574,24 @@ function createEmptyChangeSet(scope: AccountScope): ChangeSet {
     lifecycleChanges: [],
     warnings: [],
   };
+}
+
+function addChangedSubject(
+  changeSet: ChangeSet,
+  subject: AccountChangeSubject,
+): void {
+  if (!changeSet.changedSubjects.includes(subject)) {
+    changeSet.changedSubjects.push(subject);
+  }
+}
+
+function getChangedItemCount(changeSet: ChangeSet): number {
+  return (
+    changeSet.itemsAdded +
+    changeSet.itemsUpdated +
+    changeSet.itemsRemoved +
+    changeSet.itemsMarkedStale
+  );
 }
 
 /**
