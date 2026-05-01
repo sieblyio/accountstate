@@ -204,7 +204,7 @@ function findUnsafeReadyView(view: AccountView): InvariantViolation[] {
     balances: view.confidence.balances,
   }).filter(([, confidence]) => isUnsafeRequiredConfidence(confidence));
 
-  if (view.needsSync || unsafeSubjects.length === 0) {
+  if (view.hasStateChecks || unsafeSubjects.length === 0) {
     return [];
   }
 
@@ -214,7 +214,7 @@ function findUnsafeReadyView(view: AccountView): InvariantViolation[] {
       severity: 'error',
       scope: view.scope,
       message:
-        'Account view is marked as not needing sync while required subjects are unsafe.',
+        'Account view has no state checks while required subjects are unsafe.',
       context: {
         unsafeSubjects: unsafeSubjects.map(([subject, confidence]) => ({
           subject,

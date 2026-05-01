@@ -84,17 +84,17 @@ function fill(overrides: Partial<NormalizedFill> = {}): NormalizedFill {
 }
 
 function syncRequiredSubjects(state: ExchangeAccountStateStore): void {
-  state.syncPositions(scope, [position()], { asOfMs: 1 });
-  state.syncOpenOrders(scope, [], { asOfMs: 1 });
-  state.syncBalances(scope, [balance()], { asOfMs: 1 });
+  state.setPositions(scope, [position()], { asOfMs: 1 });
+  state.setOpenOrders(scope, [], { asOfMs: 1 });
+  state.setBalances(scope, [balance()], { asOfMs: 1 });
 }
 
 describe('ExchangeAccountStateStore exchange account API', () => {
-  it('sync helpers produce the same state as snapshot reducer calls', () => {
+  it('current-state setters produce the same state as snapshot reducer calls', () => {
     const account = new ExchangeAccountStateStore();
     const reducer = new ExchangeAccountStateStore();
 
-    account.syncPositions(scope, [position()], { asOfMs: 1 });
+    account.setPositions(scope, [position()], { asOfMs: 1 });
     reducer.ingest({
       type: 'rest_snapshot',
       scope,
@@ -105,7 +105,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
       asOfMs: 1,
     });
 
-    account.syncOpenOrders(scope, [order()], { asOfMs: 2 });
+    account.setOpenOrders(scope, [order()], { asOfMs: 2 });
     reducer.ingest({
       type: 'rest_snapshot',
       scope,
@@ -116,7 +116,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
       asOfMs: 2,
     });
 
-    account.syncBalances(scope, [balance()], { asOfMs: 3 });
+    account.setBalances(scope, [balance()], { asOfMs: 3 });
     reducer.ingest({
       type: 'rest_snapshot',
       scope,
@@ -127,7 +127,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
       asOfMs: 3,
     });
 
-    account.syncFills(scope, [fill()], { asOfMs: 4 });
+    account.setFills(scope, [fill()], { asOfMs: 4 });
     reducer.ingest({
       type: 'rest_snapshot',
       scope,
@@ -143,12 +143,12 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     );
   });
 
-  it('private stream helpers produce the same state as stream reducer calls', () => {
+  it('account-data helpers produce the same state as stream reducer calls', () => {
     const account = new ExchangeAccountStateStore();
     const reducer = new ExchangeAccountStateStore();
     const streamOrder = order({ source: 'ws', updatedAtMs: 10 });
 
-    account.onOrderUpdate(scope, streamOrder, {
+    account.applyOrderUpdate(scope, streamOrder, {
       receivedAtMs: 11,
       eventId: 'event-1',
     });
@@ -163,7 +163,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
       },
     });
 
-    account.streamGap(scope, {
+    account.recordStreamGap(scope, {
       atMs: 12,
       reason: 'missed sequence',
     });
@@ -182,8 +182,8 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     expect(account.getAccountView(scope)).toEqual(
       reducer.getAccountView(scope),
     );
-    expect(account.getSyncRequests(scope)).toEqual(
-      reducer.getSyncRequests(scope),
+    expect(account.getStateChecks(scope)).toEqual(
+      reducer.getStateChecks(scope),
     );
   });
 
@@ -195,7 +195,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
       source: 'local',
     });
 
-    account.orderAccepted({
+    account.recordOrderAccepted({
       scope,
       intentId: 'intent-1',
       customOrderId: 'client-1001',
@@ -211,7 +211,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
       acceptedAtMs: 1,
     });
 
-    account.orderRejected({
+    account.recordOrderRejected({
       scope,
       intentId: 'intent-1',
       customOrderId: 'client-1001',
@@ -230,17 +230,17 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     expect(account.getAccountView(scope)).toEqual(
       reducer.getAccountView(scope),
     );
-    expect(account.getSyncRequests(scope)).toEqual(
-      reducer.getSyncRequests(scope),
+    expect(account.getStateChecks(scope)).toEqual(
+      reducer.getStateChecks(scope),
     );
   });
 
   it('terminal order helpers use exchange-facing language for known identities', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.syncOpenOrders(scope, [order()], { asOfMs: 1 });
+    state.setOpenOrders(scope, [order()], { asOfMs: 1 });
 
-    const notFoundChange = state.orderNotFound({
+    const notFoundChange = state.recordOrderNotFound({
       scope,
       identity: { customOrderId: 'client-1001' },
       atMs: 2,
@@ -254,9 +254,9 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     });
     expect(state.getAccount(scope).openOrders).toEqual([]);
 
-    state.syncOpenOrders(scope, [order()], { asOfMs: 3 });
+    state.setOpenOrders(scope, [order()], { asOfMs: 3 });
 
-    const cancelChange = state.orderCancelled({
+    const cancelChange = state.recordOrderCancelled({
       scope,
       identity: { exchangeOrderId: '1001' },
       cancelledAtMs: 4,
@@ -276,15 +276,15 @@ describe('ExchangeAccountStateStore exchange account API', () => {
 
     const startup = state.getAccount(scope);
     expect(startup.readyToTrade).toBe(false);
-    expect(startup.syncRequests.map((request) => request.subject)).toEqual([
+    expect(startup.stateChecks.map((request) => request.subject)).toEqual([
       'positions',
       'openOrders',
       'balances',
       'fills',
     ]);
 
-    state.syncPositions(scope, [position()], { asOfMs: 1 });
-    state.syncOpenOrders(scope, [], { asOfMs: 1 });
+    state.setPositions(scope, [position()], { asOfMs: 1 });
+    state.setOpenOrders(scope, [], { asOfMs: 1 });
 
     const positionsAndOrders = state.getAccount(scope, {
       requiredSubjects: ['positions', 'openOrders'],
@@ -294,7 +294,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     expect(positionsAndOrders.canTrustOpenOrders).toBe(true);
     expect(positionsAndOrders.canTrustBalances).toBe(false);
     expect(positionsAndOrders.canTrustFills).toBe(false);
-    expect(positionsAndOrders.syncRequests).toEqual([
+    expect(positionsAndOrders.stateChecks).toEqual([
       { scope, subject: 'balances', reason: 'startup', priority: 'immediate' },
       { scope, subject: 'fills', reason: 'startup', priority: 'background' },
     ]);
@@ -308,38 +308,38 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     expect(synced.canTrustOpenOrders).toBe(true);
     expect(synced.canTrustBalances).toBe(true);
     expect(synced.canTrustFills).toBe(false);
-    expect(synced.syncRequests).toEqual([
+    expect(synced.stateChecks).toEqual([
       { scope, subject: 'fills', reason: 'startup', priority: 'background' },
     ]);
     const requiresFills = state.getAccount(scope, { requireFills: true });
     expect(requiresFills.readyToTrade).toBe(false);
-    expect(requiresFills.syncRequests).toEqual([
+    expect(requiresFills.stateChecks).toEqual([
       { scope, subject: 'fills', reason: 'startup', priority: 'immediate' },
     ]);
     const explicitlyRequiresFills = state.getAccount(scope, {
       requiredSubjects: ['positions', 'openOrders', 'fills'],
     });
     expect(explicitlyRequiresFills.readyToTrade).toBe(false);
-    expect(explicitlyRequiresFills.syncRequests).toEqual([
+    expect(explicitlyRequiresFills.stateChecks).toEqual([
       { scope, subject: 'fills', reason: 'startup', priority: 'immediate' },
     ]);
 
-    state.syncFills(scope, [fill()], { asOfMs: 2 });
+    state.setFills(scope, [fill()], { asOfMs: 2 });
     expect(state.getAccount(scope, { requireFills: true }).readyToTrade).toBe(
       true,
     );
 
-    state.streamReconnected(scope, { atMs: 3 });
+    state.recordStreamReconnected(scope, { atMs: 3 });
     const stale = state.getAccount(scope);
     expect(stale.readyToTrade).toBe(false);
-    expect(stale.syncRequests).toEqual(
+    expect(stale.stateChecks).toEqual(
       expect.arrayContaining([
         {
           scope,
           subject: 'openOrders',
           reason: 'stream_reconnected',
           priority: 'immediate',
-          requestedAtMs: 3,
+          detectedAtMs: 3,
         },
       ]),
     );
@@ -370,10 +370,10 @@ describe('ExchangeAccountStateStore exchange account API', () => {
       customOrderId: 'client-1001',
     });
 
-    state.syncPositions(scope, [longPosition, shortPosition], { asOfMs: 1 });
-    state.syncOpenOrders(scope, [order(), ethOrder], { asOfMs: 1 });
-    state.syncBalances(scope, [balance()], { asOfMs: 1 });
-    state.syncFills(scope, [btcFill], { asOfMs: 1 });
+    state.setPositions(scope, [longPosition, shortPosition], { asOfMs: 1 });
+    state.setOpenOrders(scope, [order(), ethOrder], { asOfMs: 1 });
+    state.setBalances(scope, [balance()], { asOfMs: 1 });
+    state.setFills(scope, [btcFill], { asOfMs: 1 });
 
     expect(state.getPositions(scope)).toEqual(
       state.getAccount(scope).positions,
@@ -392,14 +392,14 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     expect(state.getOpenOrders(scope, { symbol: 'ETHUSDT' })).toEqual([
       ethOrder,
     ]);
-    expect(
-      state.getOrder(scope, { customOrderId: 'client-1001' }),
-    ).toEqual(order());
+    expect(state.getOrder(scope, { customOrderId: 'client-1001' })).toEqual(
+      order(),
+    );
     expect(state.getBalances(scope)).toEqual([balance()]);
     expect(state.getBalance(scope, 'USDT')).toEqual(balance());
-    expect(
-      state.getFills(scope, { customOrderId: 'client-1001' }),
-    ).toEqual([btcFill]);
+    expect(state.getFills(scope, { customOrderId: 'client-1001' })).toEqual([
+      btcFill,
+    ]);
   });
 
   it('ingest dispatches supported facts and warns for unsupported planned facts', () => {
@@ -473,10 +473,10 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     const changeSets = state.ingest([secondBalance]);
 
     expect(firstChangeSet.itemsAdded).toBe(1);
-    expect(firstChangeSet.changedSubjects).toEqual(['balances', 'sync']);
+    expect(firstChangeSet.changedSubjects).toEqual(['balances', 'stateChecks']);
     expect(changeSets.map((changeSet) => changeSet.itemsUpdated)).toEqual([1]);
     expect(changeSets.map((changeSet) => changeSet.changedSubjects)).toEqual([
-      ['balances', 'sync'],
+      ['balances', 'stateChecks'],
     ]);
     expect(state.getAccount(scope).balances).toEqual([
       balance({ walletBalance: '1200.00' }),

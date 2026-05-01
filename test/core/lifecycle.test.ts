@@ -55,7 +55,7 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
   it('creates a lifecycle for an open position and preserves its epoch', () => {
     const state = new ExchangeAccountStateStore();
 
-    const created = state.syncPositions(scope, [position()], { asOfMs: 1 });
+    const created = state.setPositions(scope, [position()], { asOfMs: 1 });
     const lifecycle = state.getLifecycle(scope, { symbol: 'BTCUSDT' });
 
     expect(created.lifecycleChanges.map((change) => change.change)).toEqual([
@@ -70,7 +70,7 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
       status: 'open',
     });
 
-    const unchanged = state.syncPositions(
+    const unchanged = state.setPositions(
       scope,
       [position({ updatedAtMs: 2 })],
       { asOfMs: 2 },
@@ -87,9 +87,9 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
   it('advances replacement generation once when the same position changes', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.syncPositions(scope, [position()], { asOfMs: 1 });
+    state.setPositions(scope, [position()], { asOfMs: 1 });
 
-    const changed = state.syncPositions(
+    const changed = state.setPositions(
       scope,
       [
         position({
@@ -114,7 +114,7 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
       },
     ]);
 
-    const repeated = state.syncPositions(
+    const repeated = state.setPositions(
       scope,
       [
         position({
@@ -136,10 +136,10 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
   it('moves a closed position to cleanup pending while app-owned orders remain', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.syncPositions(scope, [position()], { asOfMs: 1 });
-    state.syncOpenOrders(scope, [order()], { asOfMs: 1 });
+    state.setPositions(scope, [position()], { asOfMs: 1 });
+    state.setOpenOrders(scope, [order()], { asOfMs: 1 });
 
-    const closed = state.syncPositions(scope, [], {
+    const closed = state.setPositions(scope, [], {
       mode: 'replace-scope',
       asOfMs: 2,
     });
@@ -161,11 +161,11 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
   it('settles and clears a closed lifecycle after app-owned orders are terminal', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.syncPositions(scope, [position()], { asOfMs: 1 });
-    state.syncOpenOrders(scope, [order()], { asOfMs: 1 });
-    state.syncPositions(scope, [], { mode: 'replace-scope', asOfMs: 2 });
+    state.setPositions(scope, [position()], { asOfMs: 1 });
+    state.setOpenOrders(scope, [order()], { asOfMs: 1 });
+    state.setPositions(scope, [], { mode: 'replace-scope', asOfMs: 2 });
 
-    const terminal = state.orderNotFound({
+    const terminal = state.recordOrderNotFound({
       scope,
       identity: { customOrderId: 'client-1001' },
       atMs: 3,
@@ -186,12 +186,12 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
   it('creates a new epoch for a fresh same-symbol same-side position', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.syncPositions(scope, [position()], { asOfMs: 1 });
-    const closed = state.syncPositions(scope, [], {
+    state.setPositions(scope, [position()], { asOfMs: 1 });
+    const closed = state.setPositions(scope, [], {
       mode: 'replace-scope',
       asOfMs: 2,
     });
-    const reopened = state.syncPositions(
+    const reopened = state.setPositions(
       scope,
       [position({ updatedAtMs: 10 })],
       { asOfMs: 10 },
@@ -240,7 +240,7 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
       },
     });
 
-    state.syncOpenOrders(
+    state.setOpenOrders(
       scope,
       [
         order({

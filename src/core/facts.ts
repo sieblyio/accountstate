@@ -1,6 +1,6 @@
 import type {
   AccountScope,
-  SyncSubject,
+  StateCheckSubject,
   NormalizedBalance,
   NormalizedFill,
   NormalizedOrder,
@@ -113,7 +113,7 @@ export interface TerminalEvidenceFact {
 export interface SyncGapFact {
   type: 'sync_gap';
   scope: AccountScope;
-  subject: SyncSubject;
+  subject: StateCheckSubject;
   reason: string;
   atMs: TimestampMs;
 }

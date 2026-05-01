@@ -15,8 +15,8 @@ import type {
   OrderStrategySide,
   Provenance,
   SnapshotSubject,
-  SyncCoverage,
-  SyncMode,
+  SnapshotCoverage,
+  SnapshotMode,
   TerminalReason,
   TimestampMs,
 } from '../../core/types.js';
@@ -33,11 +33,12 @@ import type {
   BinanceUsdmTradeLiteEvent,
   BinanceUsdmUserDataEvent,
 } from './types.js';
+import { binanceSubmission } from './submission.js';
 
 export interface BinanceRestSnapshotOptions {
   asOfMs?: TimestampMs;
-  mode?: SyncMode;
-  coverage?: SyncCoverage;
+  mode?: SnapshotMode;
+  coverage?: SnapshotCoverage;
   snapshotId?: string;
   receivedAtMs?: TimestampMs;
 }
@@ -170,7 +171,7 @@ export function normalizeBinanceUsdmAccountTrade(
 }
 
 /**
- * Normalize one formatted USD-M user-data event into store-ingestable facts.
+ * Normalize one formatted USD-M account-data event into store-ingestable facts.
  */
 export function normalizeBinanceUsdmUserDataEvent(
   event: BinanceUsdmUserDataEvent,
@@ -644,6 +645,7 @@ export const binance = {
       return normalizeBinanceSpotExecutionReport(event, scope, options);
     },
   },
+  submission: binanceSubmission,
 } as const;
 
 function normalizeUsdmPositionRow(
@@ -744,7 +746,7 @@ function createRestSnapshot<T>(
   subject: SnapshotSubject,
   rows: T[],
   options: BinanceRestSnapshotOptions | undefined,
-  defaultMode: SyncMode,
+  defaultMode: SnapshotMode,
 ): RestSnapshotFact<T> {
   const asOfMs = options?.asOfMs ?? inferRowsAsOfMs(rows);
   return {
@@ -821,7 +823,7 @@ function isTerminalOrderStatus(status: NormalizedOrderStatus): boolean {
 
 function withOrderKindCoverage(
   options: BinanceRestSnapshotOptions | undefined,
-  orderKinds: SyncCoverage['orderKinds'],
+  orderKinds: SnapshotCoverage['orderKinds'],
 ): BinanceRestSnapshotOptions | undefined {
   return {
     ...options,

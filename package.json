@@ -31,6 +31,11 @@
       "import": "./dist/mjs/adapters/binance/index.js",
       "require": "./dist/cjs/adapters/binance/index.js",
       "types": "./dist/mjs/adapters/binance/index.d.ts"
+    },
+    "./bybit": {
+      "import": "./dist/mjs/adapters/bybit/index.js",
+      "require": "./dist/cjs/adapters/bybit/index.js",
+      "types": "./dist/mjs/adapters/bybit/index.d.ts"
     }
   },
   "type": "module",
@@ -46,7 +51,9 @@
     "clean": "tsc --build --clean tsconfig.build.json",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-    "test": "tsc -p test/tsconfig.test.json --noEmit && npm run build && jest --passWithNoTests",
+    "prepack": "npm run build && npm run scan:package",
+    "scan:package": "node scripts/scan-package-for-secrets.mjs",
+    "test": "tsc -p test/tsconfig.test.json --noEmit && npm run build && npm run scan:package && jest --passWithNoTests",
     "testOther": "node --test --loader ts-node/esm src/**/*.test.ts",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
@@ -61,6 +68,7 @@
     "@typescript-eslint/eslint-plugin": "^8.59.1",
     "@typescript-eslint/parser": "^8.59.1",
     "binance": "^3.5.7",
+    "bybit-api": "^4.6.2",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
@@ -72,10 +80,14 @@
     "typescript": "^6.0.3"
   },
   "peerDependencies": {
-    "binance": "^3.5.7"
+    "binance": "^3.5.7",
+    "bybit-api": "^4.6.2"
   },
   "peerDependenciesMeta": {
     "binance": {
+      "optional": true
+    },
+    "bybit-api": {
       "optional": true
     }
   },

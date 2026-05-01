@@ -28,11 +28,11 @@ export type {
   OrderStrategySide,
   PositionLifecycle,
   ProductId,
-  SyncCoverage,
-  SyncMode,
-  SyncReason,
-  SyncRequest,
-  SyncSubject,
+  SnapshotCoverage,
+  SnapshotMode,
+  StateCheckReason,
+  StateCheck,
+  StateCheckSubject,
   StateSource,
   StateWarning,
   StrategySide,
@@ -53,9 +53,9 @@ export type {
   OrderStatusUnknownInput,
   PositionFilter,
   PositionIdentity,
+  SetSnapshotOptions,
   StreamHealthOptions,
   StreamUpdateOptions,
-  SyncRowsOptions,
 } from './core/exchangeAccount.js';
 
 export type {

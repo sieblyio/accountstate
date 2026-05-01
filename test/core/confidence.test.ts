@@ -20,23 +20,23 @@ function syncAllSubjects(state: ExchangeAccountStateStore): void {
   for (const subject of accountSubjects) {
     switch (subject) {
       case 'positions':
-        state.syncPositions(scope, [], { mode: 'replace-scope', asOfMs: 1 });
+        state.setPositions(scope, [], { mode: 'replace-scope', asOfMs: 1 });
         break;
       case 'openOrders':
-        state.syncOpenOrders(scope, [], { mode: 'replace-scope', asOfMs: 1 });
+        state.setOpenOrders(scope, [], { mode: 'replace-scope', asOfMs: 1 });
         break;
       case 'balances':
-        state.syncBalances(scope, [], { mode: 'replace-scope', asOfMs: 1 });
+        state.setBalances(scope, [], { mode: 'replace-scope', asOfMs: 1 });
         break;
       case 'fills':
-        state.syncFills(scope, [], { mode: 'replace-scope', asOfMs: 1 });
+        state.setFills(scope, [], { mode: 'replace-scope', asOfMs: 1 });
         break;
     }
   }
 }
 
-describe('ExchangeAccountStateStore confidence and sync', () => {
-  it('returns startup sync requests for unknown account subjects', () => {
+describe('ExchangeAccountStateStore confidence and state checks', () => {
+  it('returns startup state checks for unknown account subjects', () => {
     const state = new ExchangeAccountStateStore();
 
     expect(state.getAccountView(scope).confidence).toEqual({
@@ -45,7 +45,7 @@ describe('ExchangeAccountStateStore confidence and sync', () => {
       balances: 'unknown',
       fills: 'unknown',
     });
-    expect(state.getSyncRequests(scope)).toEqual([
+    expect(state.getStateChecks(scope)).toEqual([
       {
         scope,
         subject: 'positions',
@@ -73,10 +73,10 @@ describe('ExchangeAccountStateStore confidence and sync', () => {
     ]);
   });
 
-  it('REST sync clears startup requests for the synced subject', () => {
+  it('REST snapshots clear startup requests for the covered subject', () => {
     const state = new ExchangeAccountStateStore();
 
-    const changeSet = state.syncPositions(scope, [], {
+    const changeSet = state.setPositions(scope, [], {
       mode: 'replace-scope',
       asOfMs: 1,
     });
@@ -86,7 +86,7 @@ describe('ExchangeAccountStateStore confidence and sync', () => {
       confidenceChanged: true,
     });
     expect(state.getAccountView(scope).confidence.positions).toBe('synced');
-    expect(state.getSyncRequests(scope)).toEqual([
+    expect(state.getStateChecks(scope)).toEqual([
       {
         scope,
         subject: 'openOrders',
@@ -108,11 +108,11 @@ describe('ExchangeAccountStateStore confidence and sync', () => {
     ]);
   });
 
-  it('stream gaps mark account subjects stale and request sync', () => {
+  it('stream gaps mark account subjects stale and add state checks', () => {
     const state = new ExchangeAccountStateStore();
     syncAllSubjects(state);
 
-    const changeSet = state.streamGap(scope, {
+    const changeSet = state.recordStreamGap(scope, {
       reason: 'sequence gap',
       atMs: 2,
       receivedAtMs: 2,
@@ -141,22 +141,22 @@ describe('ExchangeAccountStateStore confidence and sync', () => {
       eventId: 'gap-1',
       sequence: '42',
     });
-    expect(state.getSyncRequests(scope)).toEqual(
+    expect(state.getStateChecks(scope)).toEqual(
       accountSubjects.map((subject) => ({
         scope,
         subject,
         reason: 'stream_gap',
         priority: 'immediate',
-        requestedAtMs: 2,
+        detectedAtMs: 2,
       })),
     );
   });
 
-  it('reconnects keep stream confidence connected but request account sync', () => {
+  it('reconnects keep stream confidence connected but request REST refresh', () => {
     const state = new ExchangeAccountStateStore();
     syncAllSubjects(state);
 
-    const changeSet = state.streamReconnected(scope, {
+    const changeSet = state.recordStreamReconnected(scope, {
       reason: 'socket restarted',
       atMs: 2,
     });
@@ -171,53 +171,53 @@ describe('ExchangeAccountStateStore confidence and sync', () => {
       fills: 'stale',
       stream: 'stream_only',
     });
-    expect(state.getSyncRequests(scope)).toEqual(
+    expect(state.getStateChecks(scope)).toEqual(
       accountSubjects.map((subject) => ({
         scope,
         subject,
         reason: 'stream_reconnected',
         priority: 'immediate',
-        requestedAtMs: 2,
+        detectedAtMs: 2,
       })),
     );
   });
 
-  it('disconnected stream health facts request immediate sync', () => {
+  it('disconnected stream health facts add immediate state checks', () => {
     const state = new ExchangeAccountStateStore();
     syncAllSubjects(state);
 
-    const changeSet = state.streamDisconnected(scope, { atMs: 2 });
+    const changeSet = state.recordStreamDisconnected(scope, { atMs: 2 });
 
     expect(changeSet.warnings.map((warning) => warning.name)).toEqual([
       'stream_disconnected',
     ]);
     expect(state.getAccountView(scope).confidence.stream).toBe('stale');
-    expect(state.getSyncRequests(scope)).toEqual(
+    expect(state.getStateChecks(scope)).toEqual(
       accountSubjects.map((subject) => ({
         scope,
         subject,
         reason: 'stream_gap',
         priority: 'immediate',
-        requestedAtMs: 2,
+        detectedAtMs: 2,
       })),
     );
   });
 
-  it('REST snapshots clear matching stream sync requests', () => {
+  it('REST snapshots clear matching stream state checks', () => {
     const state = new ExchangeAccountStateStore();
     syncAllSubjects(state);
-    state.streamGap(scope, { atMs: 2 });
+    state.recordStreamGap(scope, { atMs: 2 });
 
-    state.syncPositions(scope, [], { mode: 'replace-scope', asOfMs: 3 });
+    state.setPositions(scope, [], { mode: 'replace-scope', asOfMs: 3 });
 
     expect(state.getAccountView(scope).confidence.positions).toBe('synced');
-    expect(state.getSyncRequests(scope)).toEqual(
+    expect(state.getStateChecks(scope)).toEqual(
       ['openOrders', 'balances', 'fills'].map((subject) => ({
         scope,
         subject,
         reason: 'stream_gap',
         priority: 'immediate',
-        requestedAtMs: 2,
+        detectedAtMs: 2,
       })),
     );
   });

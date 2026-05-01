@@ -3,9 +3,9 @@ import type {
   AccountScope,
   AccountViewConfidence,
   ConfidenceState,
-  SyncRequest,
-  SyncReason,
-  SyncSubject,
+  StateCheck,
+  StateCheckReason,
+  StateCheckSubject,
   NormalizedOrder,
   SnapshotInput,
   SnapshotSubject,
@@ -15,12 +15,12 @@ import type {
 } from './types.js';
 import { copyScope } from './utils.js';
 
-const ACCOUNT_SYNC_SUBJECTS = [
+const ACCOUNT_STATE_CHECK_SUBJECTS = [
   'positions',
   'openOrders',
   'balances',
   'fills',
-] as const satisfies readonly SyncSubject[];
+] as const satisfies readonly StateCheckSubject[];
 
 /**
  * New scopes start untrusted until the parent app supplies snapshots/events.
@@ -94,9 +94,9 @@ export function confidenceFromSource(source: StateSource): ConfidenceState {
 }
 
 /**
- * Return true when a snapshot source should satisfy pending sync work.
+ * Return true when a snapshot source should satisfy pending state checks.
  */
-export function isSyncingSnapshotSource(source: StateSource): boolean {
+export function isAuthoritativeSnapshotSource(source: StateSource): boolean {
   return source === 'rest' || source === 'replay' || source === 'test';
 }
 
@@ -124,22 +124,22 @@ export function confidenceFromStreamHealth(
 }
 
 /**
- * Convert stream-health facts that imply missed events into sync requests.
+ * Convert stream-health facts that may imply missed events into state checks.
  */
-export function getStreamHealthSyncRequests(
+export function getStreamHealthStateChecks(
   input: StreamHealthFact,
-): SyncRequest[] {
-  const plan = getStreamHealthSyncPlan(input.status);
+): StateCheck[] {
+  const plan = getStreamHealthStateCheckPlan(input.status);
   if (!plan) {
     return [];
   }
 
-  return ACCOUNT_SYNC_SUBJECTS.map((subject) => ({
+  return ACCOUNT_STATE_CHECK_SUBJECTS.map((subject) => ({
     scope: copyScope(input.scope),
     subject,
     reason: plan.reason,
     priority: plan.priority,
-    requestedAtMs: input.atMs,
+    detectedAtMs: input.atMs,
   }));
 }
 
@@ -156,34 +156,34 @@ export function getStreamHealthWarning(
       return createStreamWarning(
         input,
         'stream_reconnected',
-        'Private stream reconnected; account state needs sync.',
+        'Private account-data stream reconnected; account state needs checking.',
       );
     case 'disconnected':
       return createStreamWarning(
         input,
         'stream_disconnected',
-        'Private stream disconnected; account state needs sync.',
+        'Private account-data stream disconnected; account state needs checking.',
       );
     case 'gap':
       return createStreamWarning(
         input,
         'stream_gap',
-        'Private stream reported a gap; account state needs sync.',
+        'Private account-data stream reported a gap; account state needs checking.',
       );
   }
 }
 
 /**
- * Produce coarse sync reasons from confidence, stale rows, and explicit
- * scheduler requests.
+ * Produce coarse state-check reasons from confidence, stale rows, and explicit
+ * state checks.
  */
-export function getSyncReasons(
+export function getStateCheckReasons(
   confidence: AccountViewConfidence,
   openOrders: NormalizedOrder[],
-  syncRequests: SyncRequest[],
+  stateChecks: StateCheck[],
 ): string[] {
   const reasons: string[] = [];
-  for (const subject of ACCOUNT_SYNC_SUBJECTS) {
+  for (const subject of ACCOUNT_STATE_CHECK_SUBJECTS) {
     addConfidenceReason(reasons, subject, confidence[subject]);
   }
   if (confidence.filters) {
@@ -196,61 +196,61 @@ export function getSyncReasons(
   if (openOrders.some((order) => order.status === 'stale')) {
     reasons.push('openOrders_stale');
   }
-  for (const request of syncRequests) {
-    reasons.push(`${request.subject}_${request.reason}`);
+  for (const check of stateChecks) {
+    reasons.push(`${check.subject}_${check.reason}`);
   }
 
   return Array.from(new Set(reasons));
 }
 
 /**
- * Combine explicit scheduler requests with fallback requests for subjects whose
- * confidence says a REST refresh can reasonably help.
+ * Combine explicit checks with fallback checks for subjects whose confidence
+ * says a REST snapshot can reasonably help.
  */
-export function getSyncRequestsForConfidence(
+export function getStateChecksForConfidence(
   scope: AccountScope,
   confidence: AccountViewConfidence,
-  explicitRequests: SyncRequest[],
-): SyncRequest[] {
-  const requests = explicitRequests.map(cloneSyncRequest);
-  const subjectsWithExplicitRequests = new Set(
-    requests.map((request) => request.subject),
+  explicitChecks: StateCheck[],
+): StateCheck[] {
+  const checks = explicitChecks.map(cloneStateCheck);
+  const subjectsWithExplicitChecks = new Set(
+    checks.map((check) => check.subject),
   );
 
-  for (const subject of ACCOUNT_SYNC_SUBJECTS) {
-    if (subjectsWithExplicitRequests.has(subject)) {
+  for (const subject of ACCOUNT_STATE_CHECK_SUBJECTS) {
+    if (subjectsWithExplicitChecks.has(subject)) {
       continue;
     }
 
     const confidenceState = confidence[subject];
     if (confidenceState === 'unknown') {
-      requests.push(createFallbackSyncRequest(scope, subject, 'startup'));
+      checks.push(createFallbackStateCheck(scope, subject, 'startup'));
     } else if (confidenceState === 'stale') {
-      requests.push(createFallbackSyncRequest(scope, subject, 'stale_state'));
+      checks.push(createFallbackStateCheck(scope, subject, 'stale_state'));
     } else if (confidenceState === 'conflicted') {
-      requests.push(
-        createFallbackSyncRequest(scope, subject, 'conflicting_state'),
+      checks.push(
+        createFallbackStateCheck(scope, subject, 'conflicting_state'),
       );
     }
   }
 
-  return dedupeSyncRequests(requests);
+  return dedupeStateChecks(checks);
 }
 
 /**
- * Stable key for a sync request within one account scope.
+ * Stable key for a state check within one account scope.
  */
-export function getSyncRequestKey(request: SyncRequest): string {
-  return `${request.subject}:${request.reason}`;
+export function getStateCheckKey(check: StateCheck): string {
+  return `${check.subject}:${check.reason}`;
 }
 
 /**
- * Clone sync requests before exposing them to callers or internal maps.
+ * Clone state checks before exposing them to callers or internal maps.
  */
-export function cloneSyncRequest(request: SyncRequest): SyncRequest {
+export function cloneStateCheck(check: StateCheck): StateCheck {
   return {
-    ...request,
-    scope: copyScope(request.scope),
+    ...check,
+    scope: copyScope(check.scope),
   };
 }
 
@@ -312,17 +312,17 @@ function markAccountSubjectsStale(
   confidence: AccountViewConfidence,
 ): AccountViewConfidence {
   const next: AccountViewConfidence = { ...confidence };
-  for (const subject of ACCOUNT_SYNC_SUBJECTS) {
+  for (const subject of ACCOUNT_STATE_CHECK_SUBJECTS) {
     next[subject] = 'stale';
   }
 
   return next;
 }
 
-function getStreamHealthSyncPlan(status: StreamHealthFact['status']):
+function getStreamHealthStateCheckPlan(status: StreamHealthFact['status']):
   | {
-      reason: SyncReason;
-      priority: SyncRequest['priority'];
+      reason: StateCheckReason;
+      priority: StateCheck['priority'];
     }
   | undefined {
   switch (status) {
@@ -336,11 +336,11 @@ function getStreamHealthSyncPlan(status: StreamHealthFact['status']):
   }
 }
 
-function createFallbackSyncRequest(
+function createFallbackStateCheck(
   scope: AccountScope,
-  subject: SyncSubject,
-  reason: SyncReason,
-): SyncRequest {
+  subject: StateCheckSubject,
+  reason: StateCheckReason,
+): StateCheck {
   return {
     scope: copyScope(scope),
     subject,
@@ -382,10 +382,10 @@ function addConfidenceReason(
   }
 }
 
-function dedupeSyncRequests(requests: SyncRequest[]): SyncRequest[] {
-  const deduped = new Map<string, SyncRequest>();
-  for (const request of requests) {
-    deduped.set(getSyncRequestKey(request), cloneSyncRequest(request));
+function dedupeStateChecks(checks: StateCheck[]): StateCheck[] {
+  const deduped = new Map<string, StateCheck>();
+  for (const check of checks) {
+    deduped.set(getStateCheckKey(check), cloneStateCheck(check));
   }
 
   return Array.from(deduped.values());

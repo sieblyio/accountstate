@@ -130,7 +130,7 @@ async function main() {
   
   wsClient.on('formattedMessage', (data) => {
     if (isWsFormattedFuturesUserDataEvent(data)) {
-      // Handle different types of user data events
+      // Handle different types of account-data events
       if (isWsFormattedFuturesUserDataAccountUpdate(data)) {
         handleAccountUpdate(data);
         return;
@@ -141,7 +141,7 @@ async function main() {
         return;
       } 
       
-      console.log(new Date(), 'Other user data event:', data.eventType);
+      console.log(new Date(), 'Other account-data event:', data.eventType);
     }
   });
   
@@ -163,8 +163,8 @@ async function main() {
     console.error(new Date(), 'WebSocket error:', error);
   });
   
-  // Subscribe to user data stream
-  console.log(new Date(), 'Subscribing to USDM user data stream...');
+  // Subscribe to Binance's USD-M account-data stream
+  console.log(new Date(), 'Subscribing to USDM account-data stream...');
   wsClient.subscribeUsdFuturesUserDataStream();
   
   // Setup periodic sync (as a backup to ensure state consistency)

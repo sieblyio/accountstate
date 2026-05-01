@@ -1,7 +1,7 @@
 import type {
   AccountScope,
   ChangeSet,
-  SyncRequest,
+  StateCheck,
   ManagedOrderParser,
   NormalizedOrder,
   NormalizedPosition,
@@ -128,7 +128,7 @@ describe('core type contracts', () => {
     ]);
   });
 
-  it('allows account views, change sets, sync requests, and plugin contracts to compile together', () => {
+  it('allows account views, change sets, state checks, and plugin contracts to compile together', () => {
     const position = normalizedPosition();
     const order = normalizedOrder();
 
@@ -173,11 +173,11 @@ describe('core type contracts', () => {
           asOfMs: 1_700_000_000_000,
         },
       },
-      needsSync: false,
-      syncReasons: [],
+      hasStateChecks: false,
+      stateCheckReasons: [],
     };
 
-    const syncRequest: SyncRequest = {
+    const stateCheck: StateCheck = {
       scope,
       subject: 'openOrders',
       reason: 'startup',
@@ -187,7 +187,7 @@ describe('core type contracts', () => {
     const changeSet: ChangeSet = {
       scope,
       changed: true,
-      changedSubjects: ['positions', 'sync'],
+      changedSubjects: ['positions', 'stateChecks'],
       itemsAdded: 1,
       itemsUpdated: 0,
       itemsRemoved: 0,
@@ -234,7 +234,7 @@ describe('core type contracts', () => {
     };
 
     expect(view.positions).toEqual([position]);
-    expect(syncRequest.subject).toBe('openOrders');
+    expect(stateCheck.subject).toBe('openOrders');
     expect(changeSet.changed).toBe(true);
     expect(parser.parse(order)).toEqual(order.metadata);
     expect(invariant.check(view)).toEqual([]);

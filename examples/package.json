@@ -4,11 +4,13 @@
     "type": "module",
     "scripts": {
         "start:binance": "ts-node --esm binance-usdm-exchange-account-state.ts",
-        "start:binance:legacy": "ts-node --esm binance-futures-usdm.ts"
+        "start:binance:legacy": "ts-node --esm binance-futures-usdm.ts",
+        "start:bybit": "ts-node --esm bybit-v5-linear-exchange-account-state.ts",
+        "start:bybit:legacy": "ts-node --esm bybit-futures.ts"
     },
     "dependencies": {
         "binance": "^2.15.22",
-        "bybit-api": "^4.4.0",
+        "bybit-api": "^4.6.2",
         "dotenv": "^16.6.1"
     }
 }

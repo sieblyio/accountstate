@@ -11,7 +11,7 @@ import type {
   NormalizedOrder,
   NormalizedPosition,
   PositionLifecycle,
-  SyncRequest,
+  StateCheck,
 } from '../core/types.js';
 import type {
   ExchangeAccount,
@@ -36,7 +36,7 @@ export interface FixtureExpectation {
   fills?: FixturePartial<NormalizedFill>[];
   lifecycles?: FixturePartial<PositionLifecycle>[];
   confidence?: FixturePartial<AccountViewConfidence>;
-  syncRequests?: FixturePartial<SyncRequest>[];
+  stateChecks?: FixturePartial<StateCheck>[];
   changeSets?: FixturePartial<ChangeSet>[];
   invariantViolations?: FixturePartial<InvariantViolation>[];
 }
@@ -61,7 +61,7 @@ export interface FixtureRunResult {
   changeSets: ChangeSet[];
   account?: ExchangeAccount;
   view?: AccountView;
-  syncRequests?: SyncRequest[];
+  stateChecks?: StateCheck[];
   invariantViolations?: InvariantViolation[];
 }
 

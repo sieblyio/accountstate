@@ -204,8 +204,8 @@ export interface AccountView {
   lifecycles: PositionLifecycle[];
   confidence: AccountViewConfidence;
   watermarks: AccountWatermarks;
-  needsSync: boolean;
-  syncReasons: string[];
+  hasStateChecks: boolean;
+  stateCheckReasons: string[];
 }
 
 export type SnapshotSubject =
@@ -215,9 +215,9 @@ export type SnapshotSubject =
   | 'fills'
   | 'filters';
 
-export type SyncMode = 'replace-scope' | 'replace-symbols' | 'upsert-only';
+export type SnapshotMode = 'replace-scope' | 'replace-symbols' | 'upsert-only';
 
-export interface SyncCoverage {
+export interface SnapshotCoverage {
   symbols?: string[];
   orderKinds?: NormalizedOrderKind[];
   positionSides?: string[];
@@ -227,11 +227,11 @@ export interface SyncCoverage {
 export interface SnapshotInput<T> {
   scope: AccountScope;
   subject: SnapshotSubject;
-  mode: SyncMode;
+  mode: SnapshotMode;
   rows: T[];
   asOfMs: TimestampMs;
   source: StateSource;
-  coverage?: SyncCoverage;
+  coverage?: SnapshotCoverage;
   provenance?: Provenance;
 }
 
@@ -296,16 +296,19 @@ export interface ChangeSet {
   warnings: StateWarning[];
 }
 
-export type SyncSubject =
+export type StateCheckSubject =
   | 'positions'
   | 'openOrders'
   | 'balances'
   | 'fills'
   | 'filters';
 
-export type AccountChangeSubject = SyncSubject | 'lifecycles' | 'sync';
+export type AccountChangeSubject =
+  | StateCheckSubject
+  | 'lifecycles'
+  | 'stateChecks';
 
-export type SyncReason =
+export type StateCheckReason =
   | 'startup'
   | 'stream_reconnected'
   | 'stream_gap'
@@ -315,12 +318,12 @@ export type SyncReason =
   | 'conflicting_state'
   | 'operator_requested';
 
-export interface SyncRequest {
+export interface StateCheck {
   scope: AccountScope;
-  subject: SyncSubject;
-  reason: SyncReason;
+  subject: StateCheckSubject;
+  reason: StateCheckReason;
   priority: 'immediate' | 'soon' | 'background';
-  requestedAtMs?: TimestampMs;
+  detectedAtMs?: TimestampMs;
 }
 
 export interface OrderIdentityFilter {

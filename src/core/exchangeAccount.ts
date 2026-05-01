@@ -10,7 +10,7 @@ import type {
   AccountView,
   ChangeSet,
   ConfidenceState,
-  SyncRequest,
+  StateCheck,
   NormalizedBalance,
   NormalizedFill,
   NormalizedOrder,
@@ -22,9 +22,9 @@ import type {
   OrderOwner,
   PositionLifecycle,
   Provenance,
-  SyncCoverage,
+  SnapshotCoverage,
   SnapshotInput,
-  SyncMode,
+  SnapshotMode,
   SnapshotSubject,
   StateSource,
   StrategySide,
@@ -45,13 +45,13 @@ type SnapshotRowForSubject<TSubject extends SnapshotSubject> =
           : never;
 
 /**
- * Options for applying a current-state snapshot, usually from REST sync.
+ * Options for applying a current-state snapshot, usually from a REST response.
  */
-export interface SyncRowsOptions {
+export interface SetSnapshotOptions {
   /**
    * Replacement semantics for rows absent from the provided snapshot.
    */
-  mode?: SyncMode;
+  mode?: SnapshotMode;
   /**
    * Source label to attach to the snapshot rows and confidence state.
    */
@@ -63,7 +63,7 @@ export interface SyncRowsOptions {
   /**
    * Optional partial coverage when the snapshot only covers selected symbols.
    */
-  coverage?: SyncCoverage;
+  coverage?: SnapshotCoverage;
   /**
    * Full provenance override when the caller has richer source metadata.
    */
@@ -71,7 +71,7 @@ export interface SyncRowsOptions {
 }
 
 /**
- * Metadata for one normalized private-stream row update.
+ * Metadata for one normalized private account-data row update.
  */
 export interface StreamUpdateOptions {
   /**
@@ -109,7 +109,7 @@ export interface StreamHealthOptions {
    */
   atMs?: TimestampMs;
   /**
-   * Human-readable reason to surface in warnings and sync requests.
+   * Human-readable reason to surface in warnings and state checks.
    */
   reason?: string;
   /**
@@ -158,7 +158,7 @@ export interface OrderRejectedInput {
 }
 
 /**
- * Timed-out or indeterminate order-submission result that needs sync.
+ * Timed-out or indeterminate order-submission result that needs checking.
  */
 export interface OrderStatusUnknownInput {
   scope: AccountScope;
@@ -249,7 +249,7 @@ export interface ExchangeAccountReadinessOptions {
 }
 
 /**
- * Account read model for planning and sync decisions.
+ * Account read model for planning and state-check decisions.
  */
 export interface ExchangeAccount {
   scope: AccountScope;
@@ -263,19 +263,19 @@ export interface ExchangeAccount {
   canTrustOpenOrders: boolean;
   canTrustBalances: boolean;
   canTrustFills: boolean;
-  syncRequests: SyncRequest[];
-  syncReasons: string[];
+  stateChecks: StateCheck[];
+  stateCheckReasons: string[];
 }
 
 /**
- * Build the snapshot input behind exchange-facing REST-style sync methods.
+ * Build the snapshot input behind exchange-facing current-state setters.
  */
-export function createSyncSnapshotInput<TSubject extends SnapshotSubject>(
+export function createSetSnapshotInput<TSubject extends SnapshotSubject>(
   scope: AccountScope,
   subject: TSubject,
   rows: SnapshotRowForSubject<TSubject>[],
-  defaults: Required<Pick<SyncRowsOptions, 'mode' | 'source'>>,
-  options: SyncRowsOptions = {},
+  defaults: Required<Pick<SetSnapshotOptions, 'mode' | 'source'>>,
+  options: SetSnapshotOptions = {},
 ): SnapshotInput<SnapshotRowForSubject<TSubject>> {
   return {
     scope: copyScope(scope),
@@ -290,7 +290,7 @@ export function createSyncSnapshotInput<TSubject extends SnapshotSubject>(
 }
 
 /**
- * Build an upsert-style snapshot for a single private stream row.
+ * Build an upsert-style snapshot for a single private account-data row.
  */
 export function createStreamUpdateSnapshotInput<
   TSubject extends SnapshotSubject,
@@ -313,7 +313,7 @@ export function createStreamUpdateSnapshotInput<
 }
 
 /**
- * Build the fact behind exchange-facing stream health methods.
+ * Build the fact behind exchange-facing stream health recorders.
  */
 export function createStreamHealthFact(
   scope: AccountScope,
@@ -425,7 +425,7 @@ export function createOrderCancelledFact(
  */
 export function createExchangeAccount(
   view: AccountView,
-  syncRequests: SyncRequest[],
+  stateChecks: StateCheck[],
   options: ExchangeAccountReadinessOptions = {},
 ): ExchangeAccount {
   const canTrustPositions = isTrustedForPlanning(view.confidence.positions);
@@ -442,8 +442,8 @@ export function createExchangeAccount(
   const readyToTrade = requiredSubjects.every(
     (subject) => trustBySubject[subject],
   );
-  const accountSyncRequests = promoteRequiredSyncRequests(
-    syncRequests,
+  const accountStateChecks = promoteRequiredStateChecks(
+    stateChecks,
     requiredSubjects,
   );
 
@@ -459,8 +459,8 @@ export function createExchangeAccount(
     canTrustOpenOrders,
     canTrustBalances,
     canTrustFills,
-    syncRequests: accountSyncRequests,
-    syncReasons: [...view.syncReasons],
+    stateChecks: accountStateChecks,
+    stateCheckReasons: [...view.stateCheckReasons],
   };
 }
 
@@ -539,23 +539,23 @@ function getRequiredSubjects(
   return subjects;
 }
 
-function promoteRequiredSyncRequests(
-  syncRequests: SyncRequest[],
+function promoteRequiredStateChecks(
+  stateChecks: StateCheck[],
   requiredSubjects: AccountReadinessSubject[],
-): SyncRequest[] {
+): StateCheck[] {
   const required = new Set<AccountReadinessSubject>(requiredSubjects);
 
-  return syncRequests.map((request) =>
-    isAccountReadinessSubject(request.subject) &&
-    required.has(request.subject) &&
-    request.priority === 'background'
-      ? { ...request, priority: 'immediate' as const }
-      : request,
+  return stateChecks.map((check) =>
+    isAccountReadinessSubject(check.subject) &&
+    required.has(check.subject) &&
+    check.priority === 'background'
+      ? { ...check, priority: 'immediate' as const }
+      : check,
   );
 }
 
 function isAccountReadinessSubject(
-  subject: SyncRequest['subject'],
+  subject: StateCheck['subject'],
 ): subject is AccountReadinessSubject {
   return (
     subject === 'positions' ||

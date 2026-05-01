@@ -4,9 +4,9 @@ This playbook shows the common Binance USD-M account-state workflow:
 
 ```text
 startup REST snapshots
-  + private user-data events
+  + private account-data events
   + local submit/cancel outcomes
-  + reconnect REST resync
+  + reconnect REST refresh
   -> accountstate
   -> application reads one current account view
 ```
@@ -42,9 +42,10 @@ const scope: AccountScope = {
 const state = new ExchangeAccountStateStore();
 ```
 
-## Startup REST Sync
+## Startup REST Snapshot
 
-On startup, sync the current exchange state before making trading decisions:
+On startup, fetch and apply the current exchange state before making trading
+decisions:
 
 ```typescript
 async function syncFromRest(reason: string) {
@@ -68,19 +69,20 @@ state.ingest(binance.rest.accountTrades(scope, await usdm.getAccountTrades()));
 
 REST balance responses are exchange-specific and do not have a Binance helper
 yet. When the strategy uses REST balances, map the response into
-`NormalizedBalance[]` and pass it to `state.syncBalances(scope, rows)`.
+`NormalizedBalance[]` and pass it to `state.setBalances(scope, rows)`.
 
-## Private Stream Updates
+## Private Account-Data Updates
 
-During live operation, use private user-data events for account-state changes:
+During live operation, use private account-data events for account-state
+changes:
 
 ```typescript
-function onUserDataEvent(event: unknown) {
+function onAccountDataEvent(event: unknown) {
   const changes = state.ingest(binance.ws.userDataEvent(scope, event as never));
 
   for (const change of Array.isArray(changes) ? changes : [changes]) {
     if (change.changed) {
-      schedulePlannerPass('user_data');
+      schedulePlannerPass('account_data');
       break;
     }
   }
@@ -91,8 +93,8 @@ Coalesce bursts in the application. For example, order and Algo events can
 usually schedule trading logic quickly, while trade or balance-only events can
 be debounced.
 
-Do not REST sync on every private WebSocket event. REST is for startup,
-reconnect/gap recovery, operator-requested checks, and explicit sync requests.
+Do not query REST on every private WebSocket event. REST is for startup,
+reconnect/gap recovery, operator-requested checks, and explicit `stateChecks`.
 
 ## Submission Outcomes
 
@@ -100,88 +102,98 @@ After placing or cancelling an order, immediately record the result you know.
 Do not wait for a later WebSocket confirmation before updating local account
 state.
 
+The Binance adapter has pure outcome helpers for this. They convert responses or
+errors you already received into store facts; they do not submit, cancel, retry,
+or call REST.
+
 Accepted place:
 
 ```typescript
-state.orderAccepted({
-  scope,
-  intentId: intent.id,
-  customOrderId: intent.customOrderId,
-  order: provisionalOrder,
-});
+state.ingest(
+  binance.submission.placeAccepted({
+    scope,
+    intentId: intent.id,
+    customOrderId: intent.customOrderId,
+    order: provisionalOrder,
+  }),
+);
 ```
 
 For accepted trigger/Algo orders, put the trigger custom id on the provisional
 order itself:
 
 ```typescript
-state.orderAccepted({
-  scope,
-  intentId: intent.id,
-  order: {
-    ...provisionalAlgoOrder,
-    kind: 'algo',
-    customTriggerOrderId: intent.customTriggerOrderId,
-  },
-});
+state.ingest(
+  binance.submission.placeAccepted({
+    scope,
+    intentId: intent.id,
+    order: {
+      ...provisionalAlgoOrder,
+      kind: 'algo',
+      customTriggerOrderId: intent.customTriggerOrderId,
+    },
+  }),
+);
 ```
 
 Accepted cancel:
 
 ```typescript
-state.orderCancelled({
-  scope,
-  identity: { customOrderId: targetCustomOrderId },
-});
+state.ingest(
+  binance.submission.cancelAccepted({
+    scope,
+    identity: { customOrderId: targetCustomOrderId },
+  }),
+);
 ```
 
 Accepted Algo cancel:
 
 ```typescript
-state.orderCancelled({
-  scope,
-  identity: { customTriggerOrderId: targetCustomTriggerOrderId },
-});
+state.ingest(
+  binance.submission.cancelAccepted({
+    scope,
+    identity: { customTriggerOrderId: targetCustomTriggerOrderId },
+  }),
+);
 ```
 
 Unknown-order cancel evidence:
 
 ```typescript
-import { isBinanceUnknownOrderError } from 'accountstate/binance';
-
-if (isBinanceUnknownOrderError(error)) {
-  state.orderNotFound({
+state.ingest(
+  binance.submission.cancelRejected({
     scope,
     identity: { customOrderId: targetCustomOrderId },
-  });
-}
+    error,
+  }),
+);
 ```
 
 Rejected place:
 
 ```typescript
-import { classifyBinanceSubmissionError } from 'accountstate/binance';
-
-state.orderRejected({
-  scope,
-  intentId: intent.id,
-  customOrderId: intent.customOrderId,
-  error: classifyBinanceSubmissionError(error),
-});
+state.ingest(
+  binance.submission.placeRejected({
+    scope,
+    intentId: intent.id,
+    customOrderId: intent.customOrderId,
+    error,
+  }),
+);
 ```
 
 Timed-out or indeterminate submit:
 
 ```typescript
-state.orderStatusUnknown({
-  scope,
-  intentId: intent.id,
-  customOrderId: intent.customOrderId,
-  error: {
-    message: 'Submit request timed out before exchange status was known',
-    retryable: true,
-  },
-});
+state.ingest(
+  binance.submission.placeStatusUnknown({
+    scope,
+    intentId: intent.id,
+    customOrderId: intent.customOrderId,
+    error,
+  }),
+);
 ```
 
 The key rule: an accepted cancel proves the target order should no longer appear
@@ -189,31 +201,35 @@ in open-order results.
 
 ## Reconnect And Gap Handling
 
-When the private stream disconnects, pause live submissions in your application
-if that is appropriate for your integration:
+When the private account-data stream disconnects, pause live submissions in your
+application if that is appropriate for your integration:
 
 ```typescript
-state.streamDisconnected(scope, { reason: 'private stream disconnected' });
+state.recordStreamDisconnected(scope, {
+  reason: 'account-data stream disconnected',
+});
 ```
 
 When the stream reconnects or a sequence gap is detected, tell the store and
-then satisfy the resulting REST sync requests:
+then satisfy the resulting REST-backed state checks:
 
 ```typescript
-state.streamReconnected(scope, { reason: 'private stream reconnected' });
-await syncRequestedStateFromRest();
+state.recordStreamReconnected(scope, {
+  reason: 'account-data stream reconnected',
+});
+await checkStateFromRest();
 ```
 
 ```typescript
-async function syncRequestedStateFromRest() {
+async function checkStateFromRest() {
   const account = state.getAccount(scope);
 
-  for (const request of account.syncRequests) {
-    if (request.subject === 'positions') {
+  for (const check of account.stateChecks) {
+    if (check.subject === 'positions') {
       state.ingest(binance.rest.positions(scope, await usdm.getPositionsV3()));
     }
 
-    if (request.subject === 'openOrders') {
+    if (check.subject === 'openOrders') {
       state.ingest(
         binance.rest.openOrders(scope, await usdm.getAllOpenOrders()),
       );
@@ -231,9 +247,9 @@ async function syncRequestedStateFromRest() {
 }
 ```
 
-The Binance SDK may own listen-key refresh or automatic user-data reconnects.
+The Binance SDK may own listen-key refresh or automatic account-data reconnects.
 Treat that as SDK/client lifecycle. If account updates may have been missed,
-call `streamReconnected()` or `streamGap()` and resync the requested state.
+call `recordStreamReconnected()` or `recordStreamGap()` and refresh the state checks.
 
 ## Account View
 
@@ -245,7 +261,7 @@ const account = state.getAccount(scope, {
 });
 
 if (!account.readyToTrade) {
-  await syncRequestedStateFromRest();
+  await checkStateFromRest();
   return;
 }
 
@@ -287,27 +303,22 @@ Binance can canonicalize close-position Algo orders. A request that includes a
 quantity may be accepted and echoed back with quantity `0`, `closePosition:
 true`, and `reduceOnly: true`.
 
-Use the Binance comparison policy when comparing desired close-position orders
-against active exchange rows:
+Use the Binance comparison helper when comparing desired managed orders against
+active exchange rows. It handles common USD-M echo defaults, including
+close-position stop canonicalization:
 
 ```typescript
-import { binanceDefaultComparisonPolicies } from 'accountstate/binance';
+import { areBinanceManagedOrdersEquivalent } from 'accountstate/binance';
 
 function desiredMatchesActive(desired: NormalizedOrder, active: NormalizedOrder) {
-  for (const policy of binanceDefaultComparisonPolicies) {
-    if (policy.applies(desired, active)) {
-      return policy.equivalent(desired, active).equivalent;
-    }
-  }
-
-  return false;
+  return areBinanceManagedOrdersEquivalent({ desired, active });
 }
 ```
 
 ## Common Mistakes
 
 - Avoid legacy `AccountStateStore` for new exchange integrations.
-- Avoid REST syncs on every private WebSocket event.
+- Avoid REST queries on every private WebSocket event.
 - Record accepted cancel responses immediately instead of waiting for a later
   event.
 - Do not make `balances` or `fills` block readiness unless trading logic uses
@@ -329,16 +340,16 @@ await plannerPass('startup');
 
 ws.on('formattedMessage', (event) => {
   state.ingest(binance.ws.userDataEvent(scope, event));
-  schedulePlannerPass('user_data');
+  schedulePlannerPass('account_data');
 });
 
 ws.on('reconnecting', () => {
-  state.streamDisconnected(scope, { reason: 'sdk reconnecting' });
+  state.recordStreamDisconnected(scope, { reason: 'sdk reconnecting' });
 });
 
 ws.on('reconnected', async () => {
-  state.streamReconnected(scope, { reason: 'sdk reconnected' });
-  await syncRequestedStateFromRest();
+  state.recordStreamReconnected(scope, { reason: 'sdk reconnected' });
+  await checkStateFromRest();
   await plannerPass('reconnected');
 });
 
@@ -350,7 +361,7 @@ async function plannerPass(reason: string) {
   logAccountProjection(reason, account);
 
   if (!account.readyToTrade) {
-    await syncRequestedStateFromRest();
+    await checkStateFromRest();
     return;
   }
 

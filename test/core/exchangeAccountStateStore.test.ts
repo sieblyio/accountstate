@@ -97,31 +97,27 @@ function syncSnapshot(
 ): ChangeSet {
   switch (input.subject) {
     case 'positions':
-      return state.syncPositions(
+      return state.setPositions(
         input.scope,
         input.rows as NormalizedPosition[],
         input,
       );
     case 'openOrders':
-      return state.syncOpenOrders(
+      return state.setOpenOrders(
         input.scope,
         input.rows as NormalizedOrder[],
         input,
       );
     case 'balances':
-      return state.syncBalances(
+      return state.setBalances(
         input.scope,
         input.rows as NormalizedBalance[],
         input,
       );
     case 'fills':
-      return state.syncFills(
-        input.scope,
-        input.rows as NormalizedFill[],
-        input,
-      );
+      return state.setFills(input.scope, input.rows as NormalizedFill[], input);
     case 'filters':
-      throw new Error('Filter snapshots do not have a public sync helper yet.');
+      throw new Error('Filter snapshots do not have a public setter yet.');
   }
 }
 
@@ -143,8 +139,8 @@ describe('ExchangeAccountStateStore snapshots', () => {
         fills: 'unknown',
       },
       watermarks: {},
-      needsSync: true,
-      syncReasons: [
+      hasStateChecks: true,
+      stateCheckReasons: [
         'positions_unknown',
         'openOrders_unknown',
         'balances_unknown',
@@ -464,10 +460,10 @@ describe('ExchangeAccountStateStore snapshots', () => {
       },
     ]);
     expect(state.getAccountView(scope).confidence.openOrders).toBe('stale');
-    expect(state.getAccountView(scope).syncReasons).toContain(
+    expect(state.getAccountView(scope).stateCheckReasons).toContain(
       'openOrders_stale',
     );
-    expect(state.getSyncRequests(scope)).toContainEqual({
+    expect(state.getStateChecks(scope)).toContainEqual({
       scope,
       subject: 'openOrders',
       reason: 'stale_state',
@@ -617,7 +613,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       exchangeTriggerOrderId: 'trigger-1001',
     });
 
-    state.orderNotFound({
+    state.recordOrderNotFound({
       scope,
       identity: { customTriggerOrderId: 'shared-custom-id' },
       reason: 'triggered',

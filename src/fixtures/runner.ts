@@ -10,7 +10,7 @@ import type {
   NormalizedOrder,
   NormalizedPosition,
   PositionLifecycle,
-  SyncRequest,
+  StateCheck,
 } from '../core/types.js';
 import type {
   AccountStateFixture,
@@ -51,7 +51,7 @@ export function runAccountStateFixture(
     const scope = inferFixtureScope(fixture);
     const account = store.getAccount(scope, fixture.accountOptions);
     const view = store.getAccountView(scope);
-    const syncRequests = store.getSyncRequests(scope);
+    const stateChecks = store.getStateChecks(scope);
     const invariantViolations =
       fixture.invariantOptions === false
         ? []
@@ -61,7 +61,7 @@ export function runAccountStateFixture(
       ...evaluateExpectation(fixture.expect, {
         account,
         view,
-        syncRequests,
+        stateChecks,
         changeSets,
         invariantViolations,
       }),
@@ -74,7 +74,7 @@ export function runAccountStateFixture(
       changeSets,
       account,
       view,
-      syncRequests,
+      stateChecks,
       invariantViolations,
     };
   } catch (error) {
@@ -98,7 +98,7 @@ function evaluateExpectation(
   actual: {
     account: unknown;
     view: AccountView;
-    syncRequests: SyncRequest[];
+    stateChecks: StateCheck[];
     changeSets: ChangeSet[];
     invariantViolations: InvariantViolation[];
   },
@@ -156,12 +156,12 @@ function evaluateExpectation(
       expectation.confidence,
     );
   }
-  if (expectation.syncRequests) {
+  if (expectation.stateChecks) {
     pushArrayFailures(
       failures,
-      'syncRequests',
-      actual.syncRequests,
-      expectation.syncRequests,
+      'stateChecks',
+      actual.stateChecks,
+      expectation.stateChecks,
     );
   }
   if (expectation.changeSets) {
@@ -279,5 +279,5 @@ export type {
   NormalizedOrder,
   NormalizedPosition,
   PositionLifecycle,
-  SyncRequest,
+  StateCheck,
 };

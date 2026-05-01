@@ -21,10 +21,26 @@ export {
   isBinanceUnknownOrderError,
 } from './errors.js';
 
+export { binanceSubmission } from './submission.js';
+
 export {
+  areBinanceManagedOrdersEquivalent,
   binanceDefaultComparisonPolicies,
   binanceUsdmClosePositionStopComparisonPolicy,
+  binanceUsdmOrderDefaultsComparisonPolicy,
+  explainBinanceManagedOrderDiff,
 } from './comparisonPolicies.js';
+
+export type { BinanceManagedOrderComparisonInput } from './comparisonPolicies.js';
+
+export type {
+  BinanceCancelAcceptedInput,
+  BinanceCancelRejectedInput,
+  BinanceCancelStatusUnknownInput,
+  BinancePlaceAcceptedInput,
+  BinancePlaceRejectedInput,
+  BinancePlaceStatusUnknownInput,
+} from './submission.js';
 
 export {
   binanceAccountStateFixtures,

@@ -1,4 +1,4 @@
-import { isObject } from './type-guards';
+import { isObject } from './type-guards.js';
 
 export async function postDataToUrl(
   url: string,

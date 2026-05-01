@@ -20,7 +20,7 @@ export const defaultAccountStateFixtures = [
   {
     name: 'rest-position-replacement-closes-missing-position',
     description:
-      'A REST position sync with no row for an existing position closes it.',
+      'A REST position snapshot with no row for an existing position closes it.',
     initialFacts: [restSnapshot('positions', [position()], 1, 'replace-scope')],
     facts: [restSnapshot('positions', [], 2, 'replace-scope')],
     expect: {
@@ -29,10 +29,10 @@ export const defaultAccountStateFixtures = [
       confidence: {
         positions: 'synced',
       },
-      syncRequests: [
-        syncRequest('openOrders', 'startup', 'immediate'),
-        syncRequest('balances', 'startup', 'immediate'),
-        syncRequest('fills', 'startup', 'background'),
+      stateChecks: [
+        stateCheck('openOrders', 'startup', 'immediate'),
+        stateCheck('balances', 'startup', 'immediate'),
+        stateCheck('fills', 'startup', 'background'),
       ],
       changeSets: [
         {
@@ -45,7 +45,7 @@ export const defaultAccountStateFixtures = [
   {
     name: 'rest-open-order-replacement-marks-absent-app-order-stale',
     description:
-      'A scoped open-order REST sync removes absent manual orders but keeps absent app-owned orders visible as stale.',
+      'A scoped open-order REST snapshot removes absent manual orders but keeps absent app-owned orders visible as stale.',
     initialFacts: [
       restSnapshot('positions', [position()], 1, 'replace-scope'),
       restSnapshot(
@@ -80,7 +80,7 @@ export const defaultAccountStateFixtures = [
       confidence: {
         openOrders: 'stale',
       },
-      syncRequests: [syncRequest('openOrders', 'stale_state', 'immediate')],
+      stateChecks: [stateCheck('openOrders', 'stale_state', 'immediate')],
       changeSets: [
         {
           itemsRemoved: 1,
@@ -120,10 +120,10 @@ export const defaultAccountStateFixtures = [
       confidence: {
         openOrders: 'local_only',
       },
-      syncRequests: [
-        syncRequest('positions', 'startup', 'immediate'),
-        syncRequest('balances', 'startup', 'immediate'),
-        syncRequest('fills', 'startup', 'background'),
+      stateChecks: [
+        stateCheck('positions', 'startup', 'immediate'),
+        stateCheck('balances', 'startup', 'immediate'),
+        stateCheck('fills', 'startup', 'background'),
       ],
       changeSets: [
         {
@@ -137,7 +137,7 @@ export const defaultAccountStateFixtures = [
   {
     name: 'stream-confirmation-converts-provisional-to-open',
     description:
-      'A private stream order update converges a provisional custom-order-id order with the exchange order id.',
+      'A private account-data order update converges a provisional custom-order-id order with the exchange order id.',
     initialFacts: [
       {
         type: 'local_submission_accepted',
@@ -177,10 +177,10 @@ export const defaultAccountStateFixtures = [
       confidence: {
         openOrders: 'stream_only',
       },
-      syncRequests: [
-        syncRequest('positions', 'startup', 'immediate'),
-        syncRequest('balances', 'startup', 'immediate'),
-        syncRequest('fills', 'startup', 'background'),
+      stateChecks: [
+        stateCheck('positions', 'startup', 'immediate'),
+        stateCheck('balances', 'startup', 'immediate'),
+        stateCheck('fills', 'startup', 'background'),
       ],
       changeSets: [
         {
@@ -233,9 +233,9 @@ export const defaultAccountStateFixtures = [
     },
   },
   {
-    name: 'submission-rejection-requests-sync',
+    name: 'submission-rejection-adds-state-check',
     description:
-      'A rejected submission removes the provisional row and requests an open-order REST sync.',
+      'A rejected submission removes the provisional row and requests an open-order REST refresh.',
     initialFacts: [
       {
         type: 'local_submission_accepted',
@@ -264,11 +264,11 @@ export const defaultAccountStateFixtures = [
       confidence: {
         openOrders: 'stale',
       },
-      syncRequests: [
-        syncRequest('openOrders', 'conflicting_state', 'soon', 2),
-        syncRequest('positions', 'startup', 'immediate'),
-        syncRequest('balances', 'startup', 'immediate'),
-        syncRequest('fills', 'startup', 'background'),
+      stateChecks: [
+        stateCheck('openOrders', 'conflicting_state', 'soon', 2),
+        stateCheck('positions', 'startup', 'immediate'),
+        stateCheck('balances', 'startup', 'immediate'),
+        stateCheck('fills', 'startup', 'background'),
       ],
       changeSets: [
         {
@@ -279,9 +279,9 @@ export const defaultAccountStateFixtures = [
     },
   },
   {
-    name: 'stream-gap-requests-sync',
+    name: 'stream-gap-adds-state-check',
     description:
-      'A private stream gap marks account subjects stale and requests immediate REST sync.',
+      'A private account-data stream gap marks account subjects stale and requests immediate REST refresh.',
     initialFacts: [
       restSnapshot('positions', [position()], 1, 'replace-scope'),
       restSnapshot('openOrders', [order()], 1, 'replace-scope'),
@@ -305,11 +305,11 @@ export const defaultAccountStateFixtures = [
         fills: 'stale',
         stream: 'stale',
       },
-      syncRequests: [
-        syncRequest('positions', 'stream_gap', 'immediate', 2),
-        syncRequest('openOrders', 'stream_gap', 'immediate', 2),
-        syncRequest('balances', 'stream_gap', 'immediate', 2),
-        syncRequest('fills', 'stream_gap', 'immediate', 2),
+      stateChecks: [
+        stateCheck('positions', 'stream_gap', 'immediate', 2),
+        stateCheck('openOrders', 'stream_gap', 'immediate', 2),
+        stateCheck('balances', 'stream_gap', 'immediate', 2),
+        stateCheck('fills', 'stream_gap', 'immediate', 2),
       ],
       changeSets: [
         {
@@ -344,7 +344,7 @@ export const defaultAccountStateFixtures = [
       positions: [] as [],
       openOrders: [] as [],
       lifecycles: [] as [],
-      syncRequests: [] as [],
+      stateChecks: [] as [],
       changeSets: [
         {
           itemsRemoved: 1,
@@ -445,17 +445,17 @@ function restSnapshot<T>(
   };
 }
 
-function syncRequest(
+function stateCheck(
   subject: 'positions' | 'openOrders' | 'balances' | 'fills',
   reason: 'startup' | 'stream_gap' | 'conflicting_state' | 'stale_state',
   priority: 'immediate' | 'soon' | 'background',
-  requestedAtMs?: number,
+  detectedAtMs?: number,
 ) {
   return {
     scope,
     subject,
     reason,
     priority,
-    requestedAtMs,
+    detectedAtMs,
   };
 }

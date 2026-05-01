@@ -49,11 +49,11 @@ export type {
   StateWarning,
   StrategySide,
   SubjectWatermark,
-  SyncCoverage,
-  SyncMode,
-  SyncReason,
-  SyncRequest,
-  SyncSubject,
+  SnapshotCoverage,
+  SnapshotMode,
+  StateCheckReason,
+  StateCheck,
+  StateCheckSubject,
   TerminalReason,
   TimestampMs,
 } from './types.js';
@@ -71,9 +71,9 @@ export type {
   OrderStatusUnknownInput,
   PositionFilter,
   PositionIdentity,
+  SetSnapshotOptions,
   StreamHealthOptions,
   StreamUpdateOptions,
-  SyncRowsOptions,
 } from './exchangeAccount.js';
 
 export type {

@@ -24,13 +24,13 @@ const scope: AccountScope = {
 
 const state = new ExchangeAccountStateStore();
 
-state.syncPositions(scope, normalizedPositionsFromRest);
-state.syncOpenOrders(scope, normalizedOpenOrdersFromRest);
-state.syncBalances(scope, normalizedBalancesFromRest);
+state.setPositions(scope, normalizedPositionsFromRest);
+state.setOpenOrders(scope, normalizedOpenOrdersFromRest);
+state.setBalances(scope, normalizedBalancesFromRest);
 
-state.onPositionUpdate(scope, normalizedPositionFromStream);
-state.onOrderUpdate(scope, normalizedOrderFromStream);
-state.onBalanceUpdate(scope, normalizedBalanceFromStream);
+state.applyPositionUpdate(scope, normalizedPositionFromStream);
+state.applyOrderUpdate(scope, normalizedOrderFromStream);
+state.applyBalanceUpdate(scope, normalizedBalanceFromStream);
 
 const account = state.getAccount(scope);
 ```
@@ -42,11 +42,11 @@ const account = state.getAccount(scope);
 - `balances`
 - `fills`
 - `readyToTrade`
-- `syncRequests`
+- `stateChecks`
 - trust flags such as `canTrustPositions`
 
 Positions, open orders, and balances must be trusted before `readyToTrade` is
-true. Fills are background sync by default. Use
+true. Fills are refreshed in the background by default. Use
 `getAccount(scope, { requireFills: true })` when trading decisions require
 current fills.
 
@@ -59,17 +59,17 @@ const account = state.getAccount(scope, {
 ```
 
 `readyToTrade` is then evaluated against those subjects. Other unknown subjects
-can still appear in `syncRequests` for background refresh.
+can still appear in `stateChecks` for background refresh.
 
 ## REST Snapshots
 
-REST-style methods replace the covered state:
+Current-state setters replace the covered state:
 
 ```typescript
-state.syncPositions(scope, positions);
-state.syncOpenOrders(scope, openOrders);
-state.syncBalances(scope, balances);
-state.syncFills(scope, fills);
+state.setPositions(scope, positions);
+state.setOpenOrders(scope, openOrders);
+state.setBalances(scope, balances);
+state.setFills(scope, fills);
 ```
 
 Default behavior:
@@ -82,7 +82,7 @@ Default behavior:
 Use `coverage` when a REST response only covers part of the account:
 
 ```typescript
-state.syncOpenOrders(scope, btcOrders, {
+state.setOpenOrders(scope, btcOrders, {
   mode: 'replace-symbols',
   coverage: {
     symbols: ['BTCUSDT'],
@@ -94,26 +94,30 @@ state.syncOpenOrders(scope, btcOrders, {
 That prevents a symbol-specific regular-order response from deleting Algo,
 conditional, or unrelated-symbol orders.
 
-## Private Stream Updates
+## Private Account-Data Updates
 
-Use stream update methods for individual account changes:
-
-```typescript
-state.onOrderUpdate(scope, order);
-state.onPositionUpdate(scope, position);
-state.onBalanceUpdate(scope, balance);
-state.onFill(scope, fill);
-```
-
-When the private stream reconnects or has a known gap, tell the store:
+Use `apply*` methods for individual account changes received from private
+account-data streams:
 
 ```typescript
-state.streamReconnected(scope, { reason: 'private stream reconnected' });
-state.streamGap(scope, { reason: 'missed sequence' });
+state.applyOrderUpdate(scope, order);
+state.applyPositionUpdate(scope, position);
+state.applyBalanceUpdate(scope, balance);
+state.applyFill(scope, fill);
 ```
 
-The account will expose `syncRequests` so your app can query the missing REST
-state and feed it back into the matching sync method.
+When the private account-data stream reconnects or has a known gap, tell the
+store:
+
+```typescript
+state.recordStreamReconnected(scope, {
+  reason: 'account-data stream reconnected',
+});
+state.recordStreamGap(scope, { reason: 'missed sequence' });
+```
+
+The account will expose `stateChecks` so your app can verify the relevant REST
+state and feed it back into the matching setter.
 
 ## Querying State
 
@@ -137,14 +141,14 @@ ambiguous. In hedge mode, pass `exchangePositionSide`.
 After submitting an order, record the outcome you know:
 
 ```typescript
-state.orderAccepted({
+state.recordOrderAccepted({
   scope,
   intentId: 'intent-1',
   customOrderId: 'order-1',
   order: provisionalOrder,
 });
 
-state.orderRejected({
+state.recordOrderRejected({
   scope,
   intentId: 'intent-2',
   customOrderId: 'order-2',
@@ -154,7 +158,7 @@ state.orderRejected({
   },
 });
 
-state.orderStatusUnknown({
+state.recordOrderStatusUnknown({
   scope,
   intentId: 'intent-3',
   customOrderId: 'order-3',
@@ -168,12 +172,12 @@ state.orderStatusUnknown({
 For cancel or unknown-order responses:
 
 ```typescript
-state.orderCancelled({
+state.recordOrderCancelled({
   scope,
   identity: { customOrderId: 'order-1' },
 });
 
-state.orderNotFound({
+state.recordOrderNotFound({
   scope,
   identity: { exchangeOrderId: '1001' },
 });
@@ -184,7 +188,7 @@ state.orderNotFound({
 Every write method returns a `ChangeSet`:
 
 ```typescript
-const change = state.syncOpenOrders(scope, openOrders);
+const change = state.setOpenOrders(scope, openOrders);
 
 if (change.changedSubjects.includes('openOrders')) {
   schedulePlannerPass();
@@ -205,11 +209,11 @@ The counters are deliberately broad account-state words:
 - `balances`
 - `fills`
 - `lifecycles`
-- `sync`
+- `stateChecks`
 
 `positions`, `openOrders`, and `lifecycles` are usually the subjects that
-trigger trading logic. `sync` covers readiness, confidence, watermark, and
-sync-request changes.
+trigger trading logic. `stateChecks` covers readiness, confidence, watermark,
+and state-check changes.
 
 ## Advanced APIs
 
@@ -217,7 +221,7 @@ Most application code should not need these:
 
 - `ingest()`
 - `getAccountView()`
-- `getSyncRequests()`
+- `getStateChecks()`
 - `accountstate/core`
 
 They exist for exchange adapters, replay tools, conformance fixtures, and

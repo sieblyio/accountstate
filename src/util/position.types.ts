@@ -1,4 +1,4 @@
-import { EnginePositionSide } from '../lib/types/position';
+import type { EnginePositionSide } from '../lib/types/position.js';
 
 export interface PositionAgeState {
   symbol: string;

@@ -1,4 +1,4 @@
-import { DefaultLogger, USDMClient, WebsocketClient } from 'binance';
+import { DefaultLogger, RestClientV5, WebsocketClient } from 'bybit-api';
 import 'dotenv/config';
 
 import {
@@ -8,82 +8,115 @@ import {
   type NormalizedOrder,
 } from '../src/index.js';
 import {
-  binance,
-  classifyBinanceSubmissionError,
-  isBinanceUnknownOrderError,
-} from '../src/adapters/binance/index.js';
+  bybit,
+  classifyBybitSubmissionError,
+  isBybitUnknownOrderError,
+  type BybitV5PrivateEvent,
+} from '../src/adapters/bybit/index.js';
 
-const key = process.env.BINANCE_API_KEY || '';
-const secret = process.env.BINANCE_API_SECRET || '';
+const key = process.env.BYBIT_API_KEY || '';
+const secret = process.env.BYBIT_API_SECRET || '';
+const useDemoTrading = process.env.BYBIT_DEMO_TRADING === 'true';
+const useTestnet = !useDemoTrading && process.env.BYBIT_TESTNET === 'true';
 const enableLiveSubmissions =
   process.env.ACCOUNTSTATE_EXAMPLE_LIVE_SUBMISSIONS === 'true';
 
 if (!key || !secret) {
   console.error(
-    'Set BINANCE_API_KEY and BINANCE_API_SECRET before running this example.',
+    'Set BYBIT_API_KEY and BYBIT_API_SECRET before running this example.',
   );
   process.exit(1);
 }
 
 const scope: AccountScope = {
-  exchange: 'binance',
+  exchange: 'bybit',
   accountId: 'primary',
-  product: 'usdm',
-  environment: 'mainnet',
+  product: 'linear',
+  environment: useDemoTrading ? 'demo' : useTestnet ? 'testnet' : 'mainnet',
 };
 
-const usdm = new USDMClient({
-  api_key: key,
-  api_secret: secret,
-  beautifyResponses: true,
-});
+const clientOptions = {
+  key,
+  secret,
+  testnet: useTestnet,
+  demoTrading: useDemoTrading,
+};
 
+const rest = new RestClientV5(clientOptions);
 const state = new ExchangeAccountStateStore();
 const logger = {
   ...DefaultLogger,
   silly: () => undefined,
 };
-const ws = new WebsocketClient(
-  {
-    api_key: key,
-    api_secret: secret,
-    beautify: true,
-  },
-  logger,
-);
+const ws = new WebsocketClient(clientOptions, logger);
 
 let pendingPlannerPass: ReturnType<typeof setTimeout> | undefined;
 
 async function syncFromRest(reason: string): Promise<void> {
-  state.ingest(binance.rest.positions(scope, await usdm.getPositionsV3()));
-  state.ingest(binance.rest.openOrders(scope, await usdm.getAllOpenOrders()));
-  state.ingest(
-    binance.rest.openAlgoOrders(scope, await usdm.getOpenAlgoOrders()),
-  );
+  const [positions, activeOrders, walletBalances, executions] =
+    await Promise.all([
+      rest.getPositionInfo({ category: 'linear', settleCoin: 'USDT' }),
+      rest.getActiveOrders({ category: 'linear', settleCoin: 'USDT' }),
+      rest.getWalletBalance({ accountType: 'UNIFIED' }),
+      rest.getExecutionList({
+        category: 'linear',
+        settleCoin: 'USDT',
+        limit: 50,
+      }),
+    ]);
+
+  state.ingest(bybit.rest.positions(scope, positions.result.list));
+  state.ingest(bybit.rest.activeOrders(scope, activeOrders.result.list));
+  state.ingest(bybit.rest.walletBalances(scope, walletBalances.result.list));
+  state.ingest(bybit.rest.executions(scope, executions.result.list));
 
   logProjection(reason, state.getAccount(scope));
 }
 
 async function checkStateFromRest(): Promise<void> {
   const account = state.getAccount(scope, {
-    requiredSubjects: ['positions', 'openOrders'],
+    requiredSubjects: ['positions', 'openOrders', 'balances'],
   });
   const subjects = new Set(account.stateChecks.map((check) => check.subject));
 
   if (subjects.has('positions')) {
-    state.ingest(binance.rest.positions(scope, await usdm.getPositionsV3()));
+    const response = await rest.getPositionInfo({
+      category: 'linear',
+      settleCoin: 'USDT',
+    });
+    state.ingest(bybit.rest.positions(scope, response.result.list));
   }
 
   if (subjects.has('openOrders')) {
-    state.ingest(binance.rest.openOrders(scope, await usdm.getAllOpenOrders()));
-    state.ingest(
-      binance.rest.openAlgoOrders(scope, await usdm.getOpenAlgoOrders()),
-    );
+    const response = await rest.getActiveOrders({
+      category: 'linear',
+      settleCoin: 'USDT',
+    });
+    state.ingest(bybit.rest.activeOrders(scope, response.result.list));
+  }
+
+  if (subjects.has('balances')) {
+    const response = await rest.getWalletBalance({ accountType: 'UNIFIED' });
+    state.ingest(bybit.rest.walletBalances(scope, response.result.list));
+  }
+
+  if (subjects.has('fills')) {
+    const response = await rest.getExecutionList({
+      category: 'linear',
+      settleCoin: 'USDT',
+      limit: 50,
+    });
+    state.ingest(bybit.rest.executions(scope, response.result.list));
   }
 }
 
-function onAccountDataEvent(event: unknown): void {
-  const changes = state.ingest(binance.ws.userDataEvent(scope, event as never));
+function onPrivateEvent(event: BybitV5PrivateEvent): void {
+  const facts = bybit.ws.privateEvent(scope, event);
+  if (facts.length === 0) {
+    return;
+  }
+
+  const changes = state.ingest(facts);
   const changeSets = Array.isArray(changes) ? changes : [changes];
   const shouldPlan = changeSets.some((change) =>
     change.changedSubjects.some(
@@ -95,7 +128,7 @@ function onAccountDataEvent(event: unknown): void {
   );
 
   if (shouldPlan) {
-    schedulePlannerPass('user_data');
+    schedulePlannerPass('private_stream');
   }
 }
 
@@ -114,7 +147,7 @@ function schedulePlannerPass(reason: string): void {
 
 async function plannerPass(reason: string): Promise<void> {
   const account = state.getAccount(scope, {
-    requiredSubjects: ['positions', 'openOrders'],
+    requiredSubjects: ['positions', 'openOrders', 'balances'],
   });
   logProjection(reason, account);
 
@@ -163,7 +196,7 @@ async function submitAndRecord(intent: OrderIntent): Promise<void> {
       responseSummary: response,
     });
   } catch (error) {
-    if (intent.action === 'cancel' && isBinanceUnknownOrderError(error)) {
+    if (intent.action === 'cancel' && isBybitUnknownOrderError(error)) {
       state.recordOrderNotFound({
         scope,
         identity: intent.identity,
@@ -176,7 +209,7 @@ async function submitAndRecord(intent: OrderIntent): Promise<void> {
       intentId: intent.intentId,
       customOrderId:
         intent.action === 'place' ? intent.order.customOrderId : undefined,
-      error: classifyBinanceSubmissionError(error),
+      error: classifyBybitSubmissionError(error),
     });
 
     throw error;
@@ -184,7 +217,7 @@ async function submitAndRecord(intent: OrderIntent): Promise<void> {
 }
 
 async function submitToExchange(_intent: OrderIntent): Promise<unknown> {
-  throw new Error('Wire this function to your Binance submit/cancel code.');
+  throw new Error('Wire this function to your Bybit submit/cancel code.');
 }
 
 function logProjection(reason: string, account: ExchangeAccount): void {
@@ -193,6 +226,7 @@ function logProjection(reason: string, account: ExchangeAccount): void {
     product: account.scope.product,
     positions: account.positions.length,
     openOrders: account.openOrders.length,
+    balances: account.balances.length,
     lifecycles: account.lifecycles.length,
     readyToTrade: account.readyToTrade,
     stateChecks: account.stateChecks.map((check) => ({
@@ -207,32 +241,29 @@ async function main(): Promise<void> {
   await syncFromRest('startup');
   await plannerPass('startup');
 
-  ws.on('formattedMessage', (event) => {
-    onAccountDataEvent(event);
+  ws.on('update', (event) => {
+    onPrivateEvent(event as BybitV5PrivateEvent);
   });
 
-  ws.on('reconnecting', () => {
+  ws.on('reconnect', () => {
     state.recordStreamDisconnected(scope, {
-      reason: 'Binance account-data reconnecting',
+      reason: 'Bybit account-data stream reconnecting',
     });
   });
 
-  ws.on('reconnected', async (data) => {
+  ws.on('reconnected', async () => {
     state.recordStreamReconnected(scope, {
-      reason: 'Binance account-data reconnected',
+      reason: 'Bybit account-data stream reconnected',
     });
-
-    if (data?.wsKey && String(data.wsKey).includes('userData')) {
-      await checkStateFromRest();
-      await plannerPass('reconnected');
-    }
+    await checkStateFromRest();
+    await plannerPass('reconnected');
   });
 
   ws.on('exception', (error: unknown) => {
-    console.error(new Date(), 'Binance websocket error:', error);
+    console.error(new Date(), 'Bybit websocket error:', error);
   });
 
-  ws.subscribeUsdFuturesUserDataStream();
+  ws.subscribeV5(['position', 'order', 'execution', 'wallet'], 'linear', true);
 }
 
 type OrderIntent =

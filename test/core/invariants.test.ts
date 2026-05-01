@@ -87,8 +87,8 @@ function view(overrides: Partial<AccountView> = {}): AccountView {
       ...overrides.confidence,
     },
     watermarks: {},
-    needsSync: false,
-    syncReasons: [],
+    hasStateChecks: false,
+    stateCheckReasons: [],
     ...overrides,
   };
 }
@@ -136,12 +136,12 @@ describe('ExchangeAccountStateStore invariants', () => {
   it('detects active app-owned orders without a lifecycle', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.syncOpenOrders(scope, [order()], { asOfMs: 1 });
+    state.setOpenOrders(scope, [order()], { asOfMs: 1 });
     expect(violationNames(state)).toContain(
       'active_app_order_without_lifecycle',
     );
 
-    state.syncPositions(scope, [position()], { asOfMs: 1 });
+    state.setPositions(scope, [position()], { asOfMs: 1 });
     expect(violationNames(state)).not.toContain(
       'active_app_order_without_lifecycle',
     );
@@ -167,7 +167,7 @@ describe('ExchangeAccountStateStore invariants', () => {
   it('detects stale provisional orders after the configured grace period', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.orderAccepted({
+    state.recordOrderAccepted({
       scope,
       intentId: 'intent-1',
       customOrderId: 'client-1001',
@@ -202,7 +202,7 @@ describe('ExchangeAccountStateStore invariants', () => {
           balances: 'synced',
           fills: 'unknown',
         },
-        needsSync: false,
+        hasStateChecks: false,
       }),
     );
 
@@ -218,7 +218,7 @@ describe('ExchangeAccountStateStore invariants', () => {
           balances: 'synced',
           fills: 'unknown',
         },
-        needsSync: true,
+        hasStateChecks: true,
       }),
     );
     expect(ok).toEqual([]);
@@ -227,11 +227,9 @@ describe('ExchangeAccountStateStore invariants', () => {
   it('detects binary-float-looking decimal strings only when enabled', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.syncPositions(
-      scope,
-      [position({ quantity: '0.30000000000000004' })],
-      { asOfMs: 1 },
-    );
+    state.setPositions(scope, [position({ quantity: '0.30000000000000004' })], {
+      asOfMs: 1,
+    });
 
     expect(
       state

@@ -31,7 +31,7 @@ export const binanceAccountStateFixtures = [
   {
     name: 'binance-usdm-rest-hedge-snapshot',
     description:
-      'REST sync maps hedge LONG/SHORT positions plus regular and Algo open orders.',
+      'REST snapshots map hedge LONG/SHORT positions plus regular and Algo open orders.',
     facts: [
       binance.rest.positions(scope, [
         positionRow(binanceRawSamples.restHedgeLongPosition),
@@ -95,7 +95,7 @@ export const binanceAccountStateFixtures = [
   {
     name: 'binance-usdm-rest-one-way-short',
     description:
-      'REST sync maps one-way BOTH plus negative positionAmt to strategy SHORT.',
+      'REST snapshots map one-way BOTH plus negative positionAmt to strategy SHORT.',
     facts: [
       binance.rest.positions(scope, [
         positionRow(binanceRawSamples.restOneWayShortPosition),
@@ -145,7 +145,7 @@ export const binanceAccountStateFixtures = [
   {
     name: 'binance-usdm-rest-partially-filled-open-order',
     description:
-      'REST open-order sync keeps PARTIALLY_FILLED orders open with executed quantity.',
+      'REST open-order snapshot keeps PARTIALLY_FILLED orders open with executed quantity.',
     facts: [
       binance.rest.openOrders(scope, [
         regularOrderRow(binanceRawSamples.restPartiallyFilledOpenOrder),
@@ -169,7 +169,7 @@ export const binanceAccountStateFixtures = [
     },
   },
   {
-    name: 'binance-usdm-user-data-partial-fill-updates-order-and-fill',
+    name: 'binance-usdm-account-data-partial-fill-updates-order-and-fill',
     description:
       'ORDER_TRADE_UPDATE PARTIALLY_FILLED updates the open order and records the fill.',
     facts: [

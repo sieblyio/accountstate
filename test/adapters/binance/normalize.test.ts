@@ -1,11 +1,14 @@
 import { ExchangeAccountStateStore } from '../../../src/core/ExchangeAccountStateStore';
 import {
+  areBinanceManagedOrdersEquivalent,
   binance,
   binanceAccountStateFixtures,
   binanceRawSamples,
   binanceUsdmClosePositionStopComparisonPolicy,
+  binanceUsdmOrderDefaultsComparisonPolicy,
   classifyBinanceSubmissionError,
   createBinanceManagedOrderParser,
+  explainBinanceManagedOrderDiff,
   isBinanceUnknownOrderError,
   normalizeBinanceUsdmAccountUpdate,
   normalizeBinanceUsdmOpenAlgoOrder,
@@ -287,7 +290,7 @@ describe('Binance adapter normalizers', () => {
     expect(state.getPositions(scope)).toEqual([]);
   });
 
-  it('uses zero-position stream updates to close the existing position', () => {
+  it('uses zero-position account-data updates to close the existing position', () => {
     const state = new ExchangeAccountStateStore();
 
     state.ingest(
@@ -338,6 +341,7 @@ describe('Binance adapter normalizers', () => {
         {},
       ),
     ).toEqual({ equivalent: true });
+    expect(areBinanceManagedOrdersEquivalent({ desired, active })).toBe(true);
   });
 
   it('treats Binance close-position quantity canonicalization as equivalent', () => {
@@ -359,13 +363,79 @@ describe('Binance adapter normalizers', () => {
       priceProtect: true,
     });
 
+    expect(explainBinanceManagedOrderDiff({ desired, active })).toEqual({
+      equivalent: true,
+    });
+  });
+
+  it('treats common Binance order echo defaults as equivalent', () => {
+    const desired = normalizedRegularOrder({
+      triggerPrice: undefined,
+      reduceOnly: undefined,
+      closePosition: undefined,
+      timeInForce: undefined,
+      workingType: undefined,
+      priceProtect: undefined,
+    });
+    const active = normalizedRegularOrder({
+      triggerPrice: '0',
+      reduceOnly: false,
+      closePosition: false,
+      timeInForce: 'GTC',
+      workingType: 'CONTRACT_PRICE',
+      priceProtect: false,
+    });
+
     expect(
-      binanceUsdmClosePositionStopComparisonPolicy.equivalent(
-        desired,
-        active,
-        {},
-      ),
+      binanceUsdmOrderDefaultsComparisonPolicy.equivalent(desired, active, {}),
     ).toEqual({ equivalent: true });
+    expect(areBinanceManagedOrdersEquivalent({ desired, active })).toBe(true);
+  });
+
+  it('does not hide meaningful Binance order differences', () => {
+    const desired = normalizedRegularOrder({ price: '49000.00' });
+    const active = normalizedRegularOrder({ price: '49100.00' });
+
+    expect(explainBinanceManagedOrderDiff({ desired, active })).toEqual({
+      equivalent: false,
+      reason: 'orders differ outside Binance exchange defaults',
+      differences: ['price'],
+    });
+  });
+
+  it('treats provisional accepted Binance orders as satisfying desired state', () => {
+    const desired = normalizedRegularOrder({ status: 'new' });
+    const active = normalizedRegularOrder({
+      status: 'provisional',
+      source: 'local',
+    });
+
+    expect(areBinanceManagedOrdersEquivalent({ desired, active })).toBe(true);
+  });
+
+  it('uses managed metadata when comparing Binance position sides', () => {
+    const desired = normalizedAlgoOrder({
+      exchangePositionSide: undefined,
+      strategySide: undefined,
+      metadata: {
+        strategyId: 'strategy-1',
+        role: 'TP',
+        exchangePositionSide: 'SHORT',
+        strategySide: 'SHORT',
+      },
+      type: 'TAKE_PROFIT',
+      reduceOnly: undefined,
+      closePosition: false,
+    });
+    const active = normalizedAlgoOrder({
+      exchangePositionSide: 'SHORT',
+      strategySide: 'SHORT',
+      type: 'TAKE_PROFIT',
+      reduceOnly: true,
+      closePosition: false,
+    });
+
+    expect(areBinanceManagedOrdersEquivalent({ desired, active })).toBe(true);
   });
 });
 
@@ -593,6 +663,27 @@ function normalizedAlgoOrder(
     type: 'STOP_MARKET',
     status: 'new',
     triggerPrice: '48000.00',
+    updatedAtMs: 1,
+    source: 'rest',
+    ...overrides,
+  };
+}
+
+function normalizedRegularOrder(
+  overrides: Partial<NormalizedOrder> = {},
+): NormalizedOrder {
+  return {
+    ...scope,
+    symbol: 'BTCUSDT',
+    kind: 'regular',
+    customOrderId: 'regular-client-1',
+    side: 'BUY',
+    type: 'LIMIT',
+    status: 'new',
+    exchangePositionSide: 'BOTH',
+    strategySide: 'LONG',
+    quantity: '0.100',
+    price: '49000.00',
     updatedAtMs: 1,
     source: 'rest',
     ...overrides,

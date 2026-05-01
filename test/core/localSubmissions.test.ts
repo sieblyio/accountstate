@@ -32,7 +32,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
   it('accepted local submissions create provisional open orders', () => {
     const state = new ExchangeAccountStateStore();
 
-    const changeSet = state.orderAccepted({
+    const changeSet = state.recordOrderAccepted({
       scope,
       intentId: 'intent-1',
       customOrderId: 'client-1001',
@@ -69,7 +69,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
   it('REST snapshots confirm provisional custom-order-id orders without duplicating them', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.orderAccepted({
+    state.recordOrderAccepted({
       scope,
       intentId: 'intent-1',
       customOrderId: 'client-1001',
@@ -77,7 +77,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
       acceptedAtMs: 1,
     });
 
-    const changeSet = state.syncOpenOrders(
+    const changeSet = state.setOpenOrders(
       scope,
       [
         order({
@@ -106,10 +106,10 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     ]);
   });
 
-  it('rejected submissions remove matching provisional orders and request sync', () => {
+  it('rejected submissions remove matching provisional orders and add state checks', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.orderAccepted({
+    state.recordOrderAccepted({
       scope,
       intentId: 'intent-1',
       customOrderId: 'client-1001',
@@ -117,7 +117,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
       acceptedAtMs: 1,
     });
 
-    const changeSet = state.orderRejected({
+    const changeSet = state.recordOrderRejected({
       scope,
       intentId: 'intent-1',
       customOrderId: 'client-1001',
@@ -138,46 +138,46 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     ]);
     expect(state.getAccountView(scope).openOrders).toEqual([]);
     expect(state.getAccountView(scope).confidence.openOrders).toBe('stale');
-    const syncRequests = state.getSyncRequests(scope);
-    expect(syncRequests).toEqual(
+    const stateChecks = state.getStateChecks(scope);
+    expect(stateChecks).toEqual(
       expect.arrayContaining([
         {
           scope,
           subject: 'openOrders',
           reason: 'conflicting_state',
           priority: 'soon',
-          requestedAtMs: 2,
+          detectedAtMs: 2,
         },
       ]),
     );
-    expect(syncRequests).toHaveLength(4);
-    expect(syncRequests).toContainEqual({
+    expect(stateChecks).toHaveLength(4);
+    expect(stateChecks).toContainEqual({
       scope,
       subject: 'positions',
       reason: 'startup',
       priority: 'immediate',
     });
-    expect(syncRequests).toContainEqual({
+    expect(stateChecks).toContainEqual({
       scope,
       subject: 'balances',
       reason: 'startup',
       priority: 'immediate',
     });
-    expect(syncRequests).toContainEqual({
+    expect(stateChecks).toContainEqual({
       scope,
       subject: 'fills',
       reason: 'startup',
       priority: 'background',
     });
-    expect(state.getAccountView(scope).syncReasons).toContain(
+    expect(state.getAccountView(scope).stateCheckReasons).toContain(
       'openOrders_conflicting_state',
     );
   });
 
-  it('unknown submissions keep provisional orders visible and request immediate sync', () => {
+  it('unknown submissions keep provisional orders visible and add immediate state checks', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.orderAccepted({
+    state.recordOrderAccepted({
       scope,
       intentId: 'intent-1',
       customOrderId: 'client-1001',
@@ -185,7 +185,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
       acceptedAtMs: 1,
     });
 
-    const changeSet = state.orderStatusUnknown({
+    const changeSet = state.recordOrderStatusUnknown({
       scope,
       intentId: 'intent-1',
       customOrderId: 'client-1001',
@@ -208,20 +208,20 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     expect(state.getAccountView(scope).openOrders[0].status).toBe(
       'provisional',
     );
-    const syncRequests = state.getSyncRequests(scope);
-    expect(syncRequests).toEqual(
+    const stateChecks = state.getStateChecks(scope);
+    expect(stateChecks).toEqual(
       expect.arrayContaining([
         {
           scope,
           subject: 'openOrders',
           reason: 'submission_unknown',
           priority: 'immediate',
-          requestedAtMs: 2,
+          detectedAtMs: 2,
         },
       ]),
     );
-    expect(syncRequests).toHaveLength(4);
-    expect(state.getAccountView(scope).syncReasons).toContain(
+    expect(stateChecks).toHaveLength(4);
+    expect(state.getAccountView(scope).stateCheckReasons).toContain(
       'openOrders_submission_unknown',
     );
   });
@@ -229,7 +229,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
   it('terminal evidence removes matching active orders by any identity', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.syncOpenOrders(
+    state.setOpenOrders(
       scope,
       [
         order({
@@ -241,7 +241,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
       { mode: 'upsert-only', source: 'rest', asOfMs: 1 },
     );
 
-    const changeSet = state.orderNotFound({
+    const changeSet = state.recordOrderNotFound({
       scope,
       identity: { customOrderId: 'client-1001' },
       reason: 'order_not_found',
@@ -259,7 +259,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
   it('terminal evidence warns when no active order matches', () => {
     const state = new ExchangeAccountStateStore();
 
-    const changeSet = state.orderNotFound({
+    const changeSet = state.recordOrderNotFound({
       scope,
       identity: { customOrderId: 'missing-custom-order-id' },
       reason: 'manual_operator_terminal',
@@ -278,7 +278,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
   it('duplicate accepted custom order ids produce a warning without duplicate rows', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.orderAccepted({
+    state.recordOrderAccepted({
       scope,
       intentId: 'intent-1',
       customOrderId: 'client-1001',
@@ -286,7 +286,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
       acceptedAtMs: 1,
     });
 
-    const changeSet = state.orderAccepted({
+    const changeSet = state.recordOrderAccepted({
       scope,
       intentId: 'intent-2',
       customOrderId: 'client-1001',
@@ -305,10 +305,10 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     });
   });
 
-  it('sync requests are cloned before being returned', () => {
+  it('state checks are cloned before being returned', () => {
     const state = new ExchangeAccountStateStore();
 
-    state.orderStatusUnknown({
+    state.recordOrderStatusUnknown({
       scope,
       intentId: 'intent-1',
       customOrderId: 'client-1001',
@@ -318,9 +318,9 @@ describe('ExchangeAccountStateStore local submission facts', () => {
       },
     });
 
-    const requests = state.getSyncRequests(scope);
+    const requests = state.getStateChecks(scope);
     requests[0].scope.accountId = 'mutated';
 
-    expect(state.getSyncRequests(scope)[0].scope.accountId).toBe('primary');
+    expect(state.getStateChecks(scope)[0].scope.accountId).toBe('primary');
   });
 });

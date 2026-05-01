@@ -6,8 +6,9 @@ It normalizes Binance SDK/API payloads into account-state updates. It does not
 create REST clients, WebSocket clients, listen keys, timers, API keys, retry
 loops, or reconnect logic.
 
-For a complete Binance USD-M account-state workflow using startup REST sync,
-private WebSocket updates, local submission outcomes, and reconnect resync, see
+For a complete Binance USD-M account-state workflow using startup REST snapshots,
+private WebSocket updates, local submission outcomes, and reconnect REST
+refresh, see
 [Binance USD-M integration playbook](../integration-playbook-binance-usdm.md).
 
 ## Install
@@ -46,13 +47,15 @@ ws.on('formattedMessage', (event) => {
 ```
 
 Your application still owns the Binance clients and stream lifecycle. On
-reconnect, call `streamReconnected()` or do the REST sync directly:
+reconnect, call `recordStreamReconnected()` or apply a fresh REST snapshot directly:
 
 ```typescript
-state.streamReconnected(scope, { reason: 'Binance user-data stream restarted' });
+state.recordStreamReconnected(scope, {
+  reason: 'Binance account-data stream restarted',
+});
 
-for (const request of state.getAccount(scope).syncRequests) {
-  await syncRequestedSubjectFromRest(request);
+for (const check of state.getAccount(scope).stateChecks) {
+  await checkStateSubjectFromRest(check);
 }
 ```
 
@@ -65,7 +68,7 @@ REST helpers:
 - `binance.rest.openAlgoOrders(scope, rows)`
 - `binance.rest.accountTrades(scope, rows)`
 
-WebSocket/user-data helpers:
+Private account-data helpers:
 
 - `binance.ws.userDataEvent(scope, event)`
 - `binance.ws.spotExecutionReport(scope, event)`
@@ -79,7 +82,7 @@ WebSocket/user-data helpers:
 
 REST balance responses are not normalized by a Binance helper yet. If you need a
 REST balance snapshot, map the response into `NormalizedBalance[]` and call
-`state.syncBalances(scope, rows)`. `ACCOUNT_UPDATE` stream events already update
+`state.setBalances(scope, rows)`. `ACCOUNT_UPDATE` stream events already update
 balances through `binance.ws.userDataEvent()`.
 
 ## Order Identity
@@ -121,32 +124,50 @@ Binance can canonicalize close-position Algo orders. For example, a submitted
 close-position order with a quantity may be accepted and echoed back with
 quantity `0`, `closePosition: true`, and `reduceOnly: true`.
 
-Use the exported comparison policy when comparing desired close-position stops
-against active Binance orders:
+Use the exported comparison helper when comparing desired managed orders against
+active Binance rows. It applies Binance USD-M defaults for common REST and
+WebSocket echo fields, including close-position stop canonicalization:
 
 ```typescript
-import { binanceDefaultComparisonPolicies } from 'accountstate/binance';
+import { areBinanceManagedOrdersEquivalent } from 'accountstate/binance';
+
+const equivalent = areBinanceManagedOrdersEquivalent({
+  desired,
+  active,
+});
 ```
 
-## Submission Errors
+## Submission Outcomes
 
-The adapter includes small helpers for Binance API errors:
+The adapter includes pure helpers for Binance submission outcomes. They do not
+submit or cancel anything; they only convert a response or error your app
+already received into account-state facts.
 
 ```typescript
-import {
-  classifyBinanceSubmissionError,
-  isBinanceUnknownOrderError,
-} from 'accountstate/binance';
+import { binance } from 'accountstate/binance';
 
-const normalized = classifyBinanceSubmissionError(error);
-
-if (isBinanceUnknownOrderError(error)) {
-  state.orderNotFound({
+state.ingest(
+  binance.submission.placeAccepted({
     scope,
-    identity: { customOrderId: 'order-1' },
-  });
-}
+    intentId: intent.id,
+    customOrderId: intent.customOrderId,
+    order: provisionalOrder,
+  }),
+);
+
+state.ingest(
+  binance.submission.cancelRejected({
+    scope,
+    identity: { customTriggerOrderId: targetCustomTriggerOrderId },
+    error,
+  }),
+);
 ```
+
+For a Binance unknown-order cancel error, `cancelRejected()` produces absent-order
+evidence. For other cancel failures it leaves the order in place and requests an
+open-order refresh. Lower-level helpers such as `classifyBinanceSubmissionError()`
+and `isBinanceUnknownOrderError()` remain available for custom handling.
 
 ## Fixtures
 
@@ -161,6 +182,6 @@ const results = runAccountStateFixtures({
 });
 ```
 
-These fixtures cover representative USD-M REST and user-data behavior,
+These fixtures cover representative USD-M REST and account-data behavior,
 including partial fills, Algo trigger lifecycle, close-position canonicalization,
 and real unknown-order error payloads.

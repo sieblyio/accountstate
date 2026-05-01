@@ -14,10 +14,10 @@ For new REST-plus-WebSocket exchange integrations, prefer
 
 Use `ExchangeAccountStateStore` when:
 
-- you sync account state from REST snapshots
-- you apply private WebSocket/user-data updates
+- you set account state from REST snapshots
+- you apply private account-data updates
 - you need a `readyToTrade` signal
-- you want sync requests after reconnects or stream gaps
+- you want state checks after reconnects or stream gaps
 - you want hedge-mode-safe position identity
 - you want exchange adapter support
 
@@ -76,19 +76,18 @@ The two stores use different models:
 When migrating, start by replacing your current REST bootstrap with:
 
 ```typescript
-state.syncPositions(scope, positions);
-state.syncOpenOrders(scope, openOrders);
-state.syncBalances(scope, balances);
+state.setPositions(scope, positions);
+state.setOpenOrders(scope, openOrders);
+state.setBalances(scope, balances);
 ```
 
-Then replace private stream handlers with:
+Then replace private account-data stream handlers with:
 
 ```typescript
-state.onPositionUpdate(scope, position);
-state.onOrderUpdate(scope, order);
-state.onBalanceUpdate(scope, balance);
+state.applyPositionUpdate(scope, position);
+state.applyOrderUpdate(scope, order);
+state.applyBalanceUpdate(scope, balance);
 ```
 
-Finally, read state through `getAccount(scope)` and handle any `syncRequests`
+Finally, read state through `getAccount(scope)` and handle any `stateChecks`
 before allowing planner logic to trade.
-

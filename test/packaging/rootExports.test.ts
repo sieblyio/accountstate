@@ -18,6 +18,7 @@ import { AccountStateStore } from '../../src/AccountStateStore';
 import { ExchangeAccountStateStore } from '../../src/core/ExchangeAccountStateStore';
 import packageJson from '../../package.json';
 import * as sourceBinance from '../../src/adapters/binance';
+import * as sourceBybit from '../../src/adapters/bybit';
 import * as sourceConformance from '../../src/conformance';
 import * as sourceCore from '../../src/core';
 import * as sourceRoot from '../../src/index';
@@ -28,6 +29,7 @@ const tscBin = join(packageRoot, 'node_modules/.bin/tsc');
 
 interface FixtureProjectOptions {
   includeBinance?: boolean;
+  includeBybit?: boolean;
 }
 
 describe('root package exports', () => {
@@ -85,7 +87,15 @@ describe('root package exports', () => {
       require: './dist/cjs/adapters/binance/index.js',
       types: './dist/mjs/adapters/binance/index.d.ts',
     });
+    expect(packageJson.exports['./bybit']).toEqual({
+      import: './dist/mjs/adapters/bybit/index.js',
+      require: './dist/cjs/adapters/bybit/index.js',
+      types: './dist/mjs/adapters/bybit/index.d.ts',
+    });
     expect(packageJson.files).toContain('docs/**/*.md');
+    expect(packageJson.files).not.toContain('llms.txt');
+    expect(packageJson.files).not.toContain('.npmrc');
+    expect(packageJson.files).not.toContain('.npmrc.template');
   });
 
   it('loads the built CommonJS package root after build', () => {
@@ -119,6 +129,33 @@ describe('root package exports', () => {
     }
   });
 
+  it('loads the package root through ESM import without Binance installed', () => {
+    const projectDir = createPackageFixtureProject();
+    try {
+      writeFileSync(
+        join(projectDir, 'index.mjs'),
+        `
+          import { ExchangeAccountStateStore } from 'accountstate';
+
+          const state = new ExchangeAccountStateStore();
+          const orders = state.getOpenOrders({
+            exchange: 'fixture',
+            accountId: 'primary',
+            product: 'test'
+          });
+
+          if (!Array.isArray(orders)) {
+            throw new Error('Expected open orders array');
+          }
+        `,
+      );
+
+      expect(runFixtureNode(projectDir, 'index.mjs').ok).toBe(true);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
   it('type-checks the package root in a fixture project without Binance installed', () => {
     const projectDir = createPackageFixtureProject();
     try {
@@ -134,7 +171,7 @@ describe('root package exports', () => {
           };
 
           const state = new ExchangeAccountStateStore();
-          state.syncOpenOrders(scope, []);
+          state.setOpenOrders(scope, []);
         `,
       );
 
@@ -196,6 +233,58 @@ describe('root package exports', () => {
     }
   });
 
+  it('reports the missing Bybit peer for Bybit subpath type imports', () => {
+    const projectDir = createPackageFixtureProject();
+    try {
+      writeFixtureTypeProject(
+        projectDir,
+        `
+          import type { BybitV5LinearPositionRow } from 'accountstate/bybit';
+
+          const row: BybitV5LinearPositionRow | undefined = undefined;
+          void row;
+        `,
+      );
+
+      const result = runFixtureTsc(projectDir);
+
+      expect(result.ok).toBe(false);
+      expect(result.output).toContain("Cannot find module 'bybit-api'");
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('type-checks the Bybit subpath when the Bybit peer is installed', () => {
+    const projectDir = createPackageFixtureProject({ includeBybit: true });
+    try {
+      writeFixtureTypeProject(
+        projectDir,
+        `
+          import { bybit, type BybitV5LinearPositionRow } from 'accountstate/bybit';
+          import type { AccountScope } from 'accountstate';
+
+          const scope: AccountScope = {
+            exchange: 'bybit',
+            accountId: 'primary',
+            product: 'linear'
+          };
+
+          declare const rows: BybitV5LinearPositionRow[];
+          const fact = bybit.rest.positions(scope, rows);
+          void fact;
+        `,
+      );
+
+      const result = runFixtureTsc(projectDir);
+
+      expect(result.ok).toBe(true);
+      expect(result.output).toBe('');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
   it('loads the built CommonJS core subpath after build', () => {
     const builtCore = requireFromTest('accountstate/core') as typeof sourceCore;
 
@@ -221,18 +310,41 @@ describe('root package exports', () => {
 
     expect(typeof builtBinance.normalizeBinanceUsdmPosition).toBe('function');
     expect(typeof builtBinance.binance.rest.positions).toBe('function');
+    expect(typeof builtBinance.binance.submission.cancelRejected).toBe(
+      'function',
+    );
   });
 
-  it('emits no runtime Binance SDK import in package root or adapter JS', () => {
+  it('loads the built CommonJS Bybit subpath after build', () => {
+    const builtBybit = requireFromTest(
+      'accountstate/bybit',
+    ) as typeof sourceBybit;
+
+    expect(typeof builtBybit.normalizeBybitV5LinearPosition).toBe('function');
+    expect(typeof builtBybit.bybit.rest.positions).toBe('function');
+    expect(typeof builtBybit.bybit.submission.cancelRejected).toBe('function');
+  });
+
+  it('emits no runtime exchange SDK import in package root or adapter JS', () => {
     const files = [
       join(__dirname, '../../dist/cjs/index.js'),
       join(__dirname, '../../dist/cjs/adapters/binance/index.js'),
+      join(__dirname, '../../dist/cjs/adapters/binance/submission.js'),
       join(__dirname, '../../dist/cjs/adapters/binance/types.js'),
       join(__dirname, '../../dist/cjs/adapters/binance/normalize.js'),
+      join(__dirname, '../../dist/cjs/adapters/bybit/index.js'),
+      join(__dirname, '../../dist/cjs/adapters/bybit/submission.js'),
+      join(__dirname, '../../dist/cjs/adapters/bybit/types.js'),
+      join(__dirname, '../../dist/cjs/adapters/bybit/normalize.js'),
       join(__dirname, '../../dist/mjs/index.js'),
       join(__dirname, '../../dist/mjs/adapters/binance/index.js'),
+      join(__dirname, '../../dist/mjs/adapters/binance/submission.js'),
       join(__dirname, '../../dist/mjs/adapters/binance/types.js'),
       join(__dirname, '../../dist/mjs/adapters/binance/normalize.js'),
+      join(__dirname, '../../dist/mjs/adapters/bybit/index.js'),
+      join(__dirname, '../../dist/mjs/adapters/bybit/submission.js'),
+      join(__dirname, '../../dist/mjs/adapters/bybit/types.js'),
+      join(__dirname, '../../dist/mjs/adapters/bybit/normalize.js'),
     ];
 
     for (const file of files) {
@@ -242,6 +354,10 @@ describe('root package exports', () => {
       expect(js).not.toContain('from "binance"');
       expect(js).not.toContain("require('binance')");
       expect(js).not.toContain('require("binance")');
+      expect(js).not.toContain("from 'bybit-api'");
+      expect(js).not.toContain('from "bybit-api"');
+      expect(js).not.toContain("require('bybit-api')");
+      expect(js).not.toContain('require("bybit-api")');
     }
   });
 
@@ -281,14 +397,20 @@ describe('root package exports', () => {
       expect(existsSync(file)).toBe(true);
       const content = readFileSync(file, 'utf8');
       expect(content).not.toContain('adapters/binance');
+      expect(content).not.toContain('adapters/bybit');
       expect(content).not.toContain('accountstate/binance');
+      expect(content).not.toContain('accountstate/bybit');
       expect(content).not.toContain('binance');
+      expect(content).not.toContain('bybit');
     }
 
     const adapterFiles = [
       ...findFiles(join(packageRoot, 'src/adapters/binance'), '.ts'),
+      ...findFiles(join(packageRoot, 'src/adapters/bybit'), '.ts'),
       ...findFiles(join(packageRoot, 'dist/cjs/adapters/binance'), '.js'),
+      ...findFiles(join(packageRoot, 'dist/cjs/adapters/bybit'), '.js'),
       ...findFiles(join(packageRoot, 'dist/mjs/adapters/binance'), '.js'),
+      ...findFiles(join(packageRoot, 'dist/mjs/adapters/bybit'), '.js'),
     ];
 
     for (const file of adapterFiles) {
@@ -299,6 +421,7 @@ describe('root package exports', () => {
       expect(content).not.toMatch(
         /\bnew\s+(?:MainClient|USDMClient|WebsocketClient|WebsocketAPIClient|CoinMClient|PortfolioClient)\b/,
       );
+      expect(content).not.toMatch(/\bnew\s+RestClientV5\b/);
     }
   });
 });
@@ -336,6 +459,14 @@ function createPackageFixtureProject(
     );
   }
 
+  if (options.includeBybit) {
+    symlinkSync(
+      join(packageRoot, 'node_modules/bybit-api'),
+      join(nodeModulesDir, 'bybit-api'),
+      'dir',
+    );
+  }
+
   return projectDir;
 }
 
@@ -365,6 +496,31 @@ function writeFixtureTypeProject(projectDir: string, source: string): void {
 function runFixtureTsc(projectDir: string): { ok: boolean; output: string } {
   try {
     const output = execFileSync(tscBin, ['-p', 'tsconfig.json'], {
+      cwd: projectDir,
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+    return { ok: true, output };
+  } catch (error) {
+    const execError = error as {
+      stdout?: Buffer | string;
+      stderr?: Buffer | string;
+    };
+    return {
+      ok: false,
+      output: `${execError.stdout?.toString() ?? ''}${
+        execError.stderr?.toString() ?? ''
+      }`,
+    };
+  }
+}
+
+function runFixtureNode(
+  projectDir: string,
+  file: string,
+): { ok: boolean; output: string } {
+  try {
+    const output = execFileSync(process.execPath, [file], {
       cwd: projectDir,
       encoding: 'utf8',
       stdio: 'pipe',
