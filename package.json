@@ -35,7 +35,8 @@
   },
   "type": "module",
   "files": [
-    "dist/*"
+    "dist/*",
+    "docs/**/*.md"
   ],
   "scripts": {
     "build": "rm -fr dist/* && tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json && bash ./postBuild.sh",

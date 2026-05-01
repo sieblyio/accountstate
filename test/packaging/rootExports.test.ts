@@ -85,6 +85,7 @@ describe('root package exports', () => {
       require: './dist/cjs/adapters/binance/index.js',
       types: './dist/mjs/adapters/binance/index.d.ts',
     });
+    expect(packageJson.files).toContain('docs/**/*.md');
   });
 
   it('loads the built CommonJS package root after build', () => {

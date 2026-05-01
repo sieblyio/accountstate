@@ -9,15 +9,20 @@
 
 [1]: https://www.npmjs.com/package/accountstate
 
-A TypeScript utility class for managing cryptocurrency exchange account state in-memory. Designed for trading bots, portfolio trackers, and any application that needs to maintain real-time account state across positions, orders, and balances.
+A TypeScript in-memory account state store for crypto exchange applications.
+Feed it the REST snapshots and private WebSocket events your app already
+receives, then query one current account view for positions, open orders,
+balances, fills, readiness, and sync work.
 
 ## Table of Contents
 
-- [Features](#features)
+- [What It Tracks](#what-it-tracks)
 - [Installation](#installation)
-- [Best Practices](#best-practices)
 - [Quick Start](#quick-start)
-- [Modern Exchange Account API](#modern-exchange-account-api)
+- [Using Exchange Adapters](#using-exchange-adapters)
+- [Core Concepts](#core-concepts)
+- [Advanced Usage](#advanced-usage)
+- [Docs](#docs)
 - [Lightweight AccountStateStore API](#lightweight-accountstatestore-api)
   - [Balance Management](#balance-management)
   - [Position Management](#position-management)
@@ -30,16 +35,27 @@ A TypeScript utility class for managing cryptocurrency exchange account state in
 - [Contributions & Thanks](#contributions--thanks)
 - [License](#license)
 
-## Features
+## What It Tracks
 
-- **Account Balance Tracking** - Monitor wallet balance changes
-- **Position Management** - Track long/short positions with real-time P&L
-- **Order State Management** - Monitor active, filled, and cancelled orders
-- **Symbol-based Organization** - Organize data by trading pairs
-- **Custom Metadata Storage** - Store custom data per symbol/position
-- **Exchange Agnostic** - Works with any exchange (Binance, Bybit, etc.)
-- **Persistence Ready** - Built-in persistence hooks for custom storage
-- **TypeScript Support** - Full type safety with generics
+`accountstate` keeps one in-memory view of the exchange account state you feed
+into it:
+
+- **Positions** from REST snapshots and private stream position updates.
+- **Open orders** from REST open-order snapshots, live order updates, accepted
+  submissions, cancel responses, and unknown-order evidence.
+- **Balances** from REST balance snapshots and private stream balance updates.
+- **Fills/trades** from REST trade history or private stream execution events.
+- **Readiness** through `readyToTrade`, trust flags, and actionable
+  `syncRequests`.
+- **Exchange adapter payloads** through subpaths such as `accountstate/binance`,
+  so raw REST responses and user-data events can be dumped into the store.
+- **Advanced strategy metadata** such as lifecycle epochs and managed-order
+  metadata when your app needs them.
+
+The store is intentionally exchange-client agnostic. You can map exchange data
+yourself, or use an exchange-specific adapter as a dumping ground for raw REST
+responses and private WebSocket events as your client receives them.
+`accountstate` keeps the current account view coherent either way.
 
 ## Installation
 
@@ -49,16 +65,22 @@ npm install accountstate
 yarn add accountstate
 ```
 
-## Best Practices
+Exchange adapter subpaths may have optional peer dependencies. For Binance:
 
-1. **Initial Sync**: Always sync from REST API before starting WebSocket streams
-2. **Reconnection Handling**: Re-sync state after WebSocket reconnections
-3. **Error Handling**: Implement proper error handling for API calls
-4. **Persistence**: Use persistence for custom metadata that can't be restored
-5. **Performance**: Use the built-in filtering and sorting methods for efficiency
-6. **Type Safety**: Define custom metadata interfaces for better type safety
+```bash
+npm install accountstate binance
+```
 
 ## Quick Start
+
+Most exchange applications already have two feeds into account state:
+
+- REST responses for the latest account snapshot.
+- Private WebSocket/user-data events for live changes.
+
+`ExchangeAccountStateStore` is designed around that shape. Your app owns the
+REST clients, WebSocket clients, API keys, reconnects, retries, and scheduling.
+`accountstate` only stores and reconciles account-state data you give it.
 
 ```typescript
 import { ExchangeAccountStateStore, type AccountScope } from 'accountstate';
@@ -72,32 +94,23 @@ const scope: AccountScope = {
 
 const state = new ExchangeAccountStateStore();
 
-// Initial and periodic REST sync. Your app owns the REST client and maps
-// exchange payloads into normalized rows.
+// Initial and periodic REST sync.
 state.syncPositions(scope, normalizedPositions);
 state.syncOpenOrders(scope, normalizedOpenOrders);
 state.syncBalances(scope, normalizedBalances);
 
-// Private stream updates. Your app owns the WebSocket client.
+// Private stream updates.
 state.onOrderUpdate(scope, normalizedOrderUpdate);
 state.onPositionUpdate(scope, normalizedPositionUpdate);
+state.onBalanceUpdate(scope, normalizedBalanceUpdate);
 
-// Stream health signals tell accountstate when local state needs sync.
-state.streamReconnected(scope, { reason: 'socket restarted' });
+// Reconnects or known stream gaps make the account request a REST refresh.
+state.streamReconnected(scope, { reason: 'private stream restarted' });
 
-// After submitting an order, record exactly one outcome.
-state.orderAccepted({
-  scope,
-  intentId: 'intent-123',
-  clientOrderId: 'my-client-order-id',
-  order: provisionalOrder,
-});
-
-const account = state.getAccount(scope);
+const account = state.getAccount(scope); // ordinary app read model
 
 if (!account.readyToTrade) {
   for (const request of account.syncRequests) {
-    // Fetch the requested subject from REST, then call the matching sync method.
     await syncFromRest(request);
   }
   return;
@@ -106,22 +119,87 @@ if (!account.readyToTrade) {
 planner.plan(account);
 ```
 
-`ExchangeAccountStateStore` is the recommended store for new exchange
-integrations. It keeps the hard reconciliation rules inside the library while
-matching the workflow most trading apps already have: REST sync, private stream
-updates, order submission results, and a readiness check before planning.
-Positions, open orders, and balances are required for `readyToTrade`; fills are
+The common query methods are intentionally direct:
+
+```typescript
+const positions = state.getPositions(scope);
+const openOrders = state.getOpenOrders(scope, { symbol: 'BTCUSDT' });
+const order = state.getOrder(scope, { customClientOrderId: 'my-client-id' });
+const balance = state.getBalance(scope, 'USDT');
+```
+
+Positions, open orders, and balances are required for `readyToTrade`. Fills are
 background sync unless you call `getAccount(scope, { requireFills: true })`.
 
-For the original lightweight cache API, see
-[Lightweight AccountStateStore API](#lightweight-accountstatestore-api).
+## Using Exchange Adapters
 
-## Modern Exchange Account API
+Adapters let you pass raw exchange SDK/API objects directly into the store. The
+adapter normalizes the exchange-specific shape; `ingest()` applies the resulting
+updates in order.
 
-Lifecycles are tracked automatically from normalized positions. They give
-strategy-owned order managers a stable `lifecycleEpoch` and
-`replacementGeneration` without requiring application code to drive a separate
-state machine.
+```typescript
+import { ExchangeAccountStateStore, type AccountScope } from 'accountstate';
+import { binance } from 'accountstate/binance';
+
+const state = new ExchangeAccountStateStore();
+const scope: AccountScope = {
+  exchange: 'binance',
+  accountId: 'primary',
+  product: 'usdm',
+  environment: 'mainnet',
+};
+
+state.ingest(binance.rest.positions(scope, rawPositionRows));
+state.ingest(binance.rest.openOrders(scope, rawOpenOrderRows));
+state.ingest(binance.rest.openAlgoOrders(scope, rawOpenAlgoOrderRows));
+state.ingest(binance.rest.accountTrades(scope, rawTradeRows));
+state.ingest(binance.ws.userDataEvent(scope, rawUserDataEvent));
+
+const account = state.getAccount(scope);
+```
+
+For Binance USD-M user-data streams, `binance.ws.userDataEvent()` handles
+`ACCOUNT_UPDATE` balance/position updates, `ORDER_TRADE_UPDATE` order/fill
+updates, Algo updates, and lightweight trade events. When an Algo order
+triggers, Binance emits normal order updates for the generated order; the
+adapter keeps that regular order separate from the terminal Algo row.
+
+The Binance adapter is pure: it does not create REST clients, WebSocket clients,
+timers, retries, API keys, or stream sessions. It only accepts objects you
+already received from the Binance SDK/API and returns account-state updates.
+
+REST balance responses are exchange-specific. If an adapter does not yet expose
+a helper for the balance endpoint you use, map the response into
+`NormalizedBalance[]` and call `syncBalances()`.
+
+## Core Concepts
+
+- `syncPositions`, `syncOpenOrders`, `syncBalances`, and `syncFills` apply
+  REST-style snapshots.
+- `onPositionUpdate`, `onOrderUpdate`, `onBalanceUpdate`, and `onFill` apply
+  private stream updates.
+- `streamConnected`, `streamReconnected`, `streamDisconnected`, and `streamGap`
+  tell the store whether REST sync is needed.
+- `orderAccepted`, `orderRejected`, `orderStatusUnknown`, `orderCancelled`, and
+  `orderNotFound` record order submission outcomes.
+- `getAccount(scope)` returns the normal app read model: current state,
+  `readyToTrade`, and actionable `syncRequests`.
+
+If your custom order IDs encode strategy ownership metadata, register a small
+parser once:
+
+```typescript
+state.registerManagedOrderParser({
+  parse(order) {
+    const clientId = order.customClientOrderId ?? order.customTriggerOrderId;
+    return clientId ? parseMyManagedClientId(clientId) : undefined;
+  },
+});
+```
+
+Lifecycles are tracked automatically from normalized positions. Strategy-owned
+order managers can use them for stable lifecycle epochs and replacement
+generations without driving a separate state machine:
 
 ```typescript
 const lifecycle = state.getLifecycle(scope, {
@@ -130,14 +208,27 @@ const lifecycle = state.getLifecycle(scope, {
 });
 ```
 
-If your custom order IDs encode ownership metadata, register a small parser once:
+## Advanced Usage
+
+Most applications should not need reducer facts or snapshot internals. For
+adapter authors, replay tools, fixture runners, and debugging lower-level state
+transitions:
+
+- `ingest()` accepts adapter/conformance facts.
+- `getAccountView()` returns the detailed reducer view.
+- `getSyncRequests()` returns sync requests without the simplified account read
+  model.
+- `accountstate/core` exports fact and reducer types.
+- `accountstate/conformance` exports generic fixture runners.
 
 ```typescript
-state.registerManagedOrderParser({
-  parse(order) {
-    const clientId = order.customClientOrderId ?? order.customTriggerOrderId;
-    return clientId ? parseMyManagedClientId(clientId) : undefined;
-  },
+import {
+  defaultAccountStateFixtures,
+  runAccountStateFixtures,
+} from 'accountstate/conformance';
+
+const results = runAccountStateFixtures({
+  fixtures: defaultAccountStateFixtures,
 });
 ```
 
@@ -151,62 +242,15 @@ if (violations.some((violation) => violation.severity === 'error')) {
 }
 ```
 
-When using exchange adapters, the intended shape is even simpler: the adapter
-normalizes raw REST responses or WebSocket events, and `ingest()` applies the
-resulting account facts in order.
+## Docs
 
-```typescript
-import { binance } from 'accountstate/binance';
+- [Exchange account store](./docs/exchange-account-state-store.md)
+- [Binance adapter](./docs/adapters/binance.md)
+- [Conformance fixtures](./docs/conformance.md)
+- [Legacy lightweight store](./docs/legacy-account-state-store.md)
 
-state.ingest(binance.rest.openOrders(scope, rawOpenOrdersResponse));
-state.ingest(binance.rest.openAlgoOrders(scope, rawOpenAlgoOrdersResponse));
-state.ingest(binance.rest.positions(scope, rawPositionsResponse));
-state.ingest(binance.ws.userDataEvent(scope, rawUserDataEvent));
-
-const orders = state.getOpenOrders(scope);
-const order = state.getOrder(scope, { customClientOrderId: 'my-client-id' });
-```
-
-For Binance USD-M user-data streams, `binance.ws.userDataEvent()` handles
-`ACCOUNT_UPDATE` balance/position updates, `ORDER_TRADE_UPDATE` order/fill
-updates, Algo updates, and lightweight trade events. When an Algo order
-triggers, Binance emits normal order updates for the generated order; the
-adapter keeps that regular order separate from the terminal Algo row by mapping
-Binance Algo ids to generic trigger-order identity fields.
-
-The Binance adapter is pure: it does not create REST clients, WebSocket clients,
-timers, retries, API keys, or stream sessions. It only accepts objects you
-already received from the Binance SDK/API and returns account-state facts.
-Because `accountstate/binance` is typed against the official `binance` SDK,
-install `binance` in projects that import that subpath.
-
-`ingest`, `getSyncRequests`, and `getAccountView` are advanced escape hatches
-for fixtures, replay, and adapter authors. Lower-level reducer primitives such
-as snapshots, stream-health facts, and terminal marking are internal so
-application code is guided through the exchange-account methods above.
-If you are writing an adapter or fixture runner and need fact/reducer types,
-import them from `accountstate/core` instead of the package root.
-
-Adapter authors can also run the generic conformance pack before wiring an
-exchange-specific adapter:
-
-```typescript
-import {
-  defaultAccountStateFixtures,
-  runAccountStateFixtures,
-} from 'accountstate/conformance';
-
-const results = runAccountStateFixtures({
-  fixtures: defaultAccountStateFixtures,
-});
-
-if (results.some((result) => !result.passed)) {
-  throw new Error('Account-state conformance failed');
-}
-```
-
-The Binance subpath also exports `binanceAccountStateFixtures`, a small
-sample-backed fixture pack for adapter validation.
+For the original lightweight cache API, see
+[Lightweight AccountStateStore API](#lightweight-accountstatestore-api).
 
 ## Lightweight AccountStateStore API
 
@@ -447,7 +491,11 @@ export class PersistedAccountStateStore extends AccountStateStore<EnginePosition
 
 ## Running Examples
 
-The repository includes complete working examples for popular exchanges. You can find them in the [./examples](./examples) folder.
+The repository includes lightweight `AccountStateStore` examples in the
+[./examples](./examples) folder. The exchange-account API is documented in
+[Exchange account store](./docs/exchange-account-state-store.md), and the
+Binance adapter path is documented in
+[Binance adapter](./docs/adapters/binance.md).
 
 ### Binance Futures
 
