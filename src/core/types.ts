@@ -262,11 +262,30 @@ export interface InvariantViolation {
 
 export interface ChangeSet {
   scope: AccountScope;
+  /**
+   * True when the operation changed state, confidence, lifecycle, or warnings.
+   */
   changed: boolean;
-  rowsInserted: number;
-  rowsUpdated: number;
-  rowsTerminal: number;
-  rowsStale: number;
+  /**
+   * Number of account-state items added by this operation.
+   */
+  itemsAdded: number;
+  /**
+   * Number of existing account-state items updated by this operation.
+   */
+  itemsUpdated: number;
+  /**
+   * Number of active account-state items removed because they are closed,
+   * absent from an authoritative snapshot, or otherwise known not to be open.
+   */
+  itemsRemoved: number;
+  /**
+   * Number of account-state items kept but marked stale.
+   */
+  itemsMarkedStale: number;
+  /**
+   * True when the account confidence/readiness changed.
+   */
   confidenceChanged: boolean;
   lifecycleChanges: LifecycleChange[];
   warnings: StateWarning[];

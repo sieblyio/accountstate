@@ -46,9 +46,9 @@ describe('ExchangeAccountStateStore local submission facts', () => {
 
     expect(changeSet).toMatchObject({
       changed: true,
-      rowsInserted: 1,
-      rowsUpdated: 0,
-      rowsTerminal: 0,
+      itemsAdded: 1,
+      itemsUpdated: 0,
+      itemsRemoved: 0,
       confidenceChanged: true,
       warnings: [],
     });
@@ -92,8 +92,8 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     );
 
     expect(changeSet).toMatchObject({
-      rowsInserted: 0,
-      rowsUpdated: 1,
+      itemsAdded: 0,
+      itemsUpdated: 1,
     });
     expect(state.getAccountView(scope).openOrders).toEqual([
       order({
@@ -130,7 +130,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
 
     expect(changeSet).toMatchObject({
       changed: true,
-      rowsTerminal: 1,
+      itemsRemoved: 1,
       confidenceChanged: true,
     });
     expect(changeSet.warnings.map((warning) => warning.name)).toEqual([
@@ -198,7 +198,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
 
     expect(changeSet).toMatchObject({
       changed: true,
-      rowsTerminal: 0,
+      itemsRemoved: 0,
       confidenceChanged: true,
     });
     expect(changeSet.warnings.map((warning) => warning.name)).toEqual([
@@ -250,7 +250,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
 
     expect(changeSet).toMatchObject({
       changed: true,
-      rowsTerminal: 1,
+      itemsRemoved: 1,
       warnings: [],
     });
     expect(state.getAccountView(scope).openOrders).toEqual([]);
@@ -268,7 +268,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
 
     expect(changeSet).toMatchObject({
       changed: true,
-      rowsTerminal: 0,
+      itemsRemoved: 0,
     });
     expect(changeSet.warnings.map((warning) => warning.name)).toEqual([
       'terminal_order_not_found',

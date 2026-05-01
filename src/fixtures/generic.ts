@@ -36,7 +36,7 @@ export const defaultAccountStateFixtures = [
       ],
       changeSets: [
         {
-          rowsTerminal: 1,
+          itemsRemoved: 1,
           lifecycleChanges: [{ change: 'settled' }],
         },
       ],
@@ -83,8 +83,8 @@ export const defaultAccountStateFixtures = [
       syncRequests: [syncRequest('openOrders', 'stale_state', 'immediate')],
       changeSets: [
         {
-          rowsTerminal: 1,
-          rowsStale: 1,
+          itemsRemoved: 1,
+          itemsMarkedStale: 1,
         },
       ],
     },
@@ -127,8 +127,8 @@ export const defaultAccountStateFixtures = [
       ],
       changeSets: [
         {
-          rowsInserted: 1,
-          rowsUpdated: 0,
+          itemsAdded: 1,
+          itemsUpdated: 0,
           warnings: [] as [],
         },
       ],
@@ -184,8 +184,8 @@ export const defaultAccountStateFixtures = [
       ],
       changeSets: [
         {
-          rowsInserted: 0,
-          rowsUpdated: 1,
+          itemsAdded: 0,
+          itemsUpdated: 1,
         },
       ],
     },
@@ -222,11 +222,11 @@ export const defaultAccountStateFixtures = [
       ],
       changeSets: [
         {
-          rowsInserted: 1,
+          itemsAdded: 1,
         },
         {
-          rowsInserted: 0,
-          rowsUpdated: 1,
+          itemsAdded: 0,
+          itemsUpdated: 1,
           warnings: [{ name: 'duplicate_active_custom_client_order_id' }],
         },
       ],
@@ -272,7 +272,7 @@ export const defaultAccountStateFixtures = [
       ],
       changeSets: [
         {
-          rowsTerminal: 1,
+          itemsRemoved: 1,
           warnings: [{ name: 'local_submission_rejected' }],
         },
       ],
@@ -347,11 +347,11 @@ export const defaultAccountStateFixtures = [
       syncRequests: [] as [],
       changeSets: [
         {
-          rowsTerminal: 1,
+          itemsRemoved: 1,
           lifecycleChanges: [{ change: 'cleanup_pending' }],
         },
         {
-          rowsTerminal: 1,
+          itemsRemoved: 1,
           lifecycleChanges: [{ change: 'settled' }],
         },
       ],

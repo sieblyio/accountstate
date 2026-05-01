@@ -248,7 +248,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
 
     expect(notFoundChange).toMatchObject({
       changed: true,
-      rowsTerminal: 1,
+      itemsRemoved: 1,
       warnings: [],
     });
     expect(state.getAccount(scope).openOrders).toEqual([]);
@@ -263,7 +263,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
 
     expect(cancelChange).toMatchObject({
       changed: true,
-      rowsTerminal: 1,
+      itemsRemoved: 1,
       warnings: [],
     });
     expect(state.getAccount(scope).openOrders).toEqual([]);
@@ -446,8 +446,8 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     const firstChangeSet = state.ingest(firstBalance);
     const changeSets = state.ingest([secondBalance]);
 
-    expect(firstChangeSet.rowsInserted).toBe(1);
-    expect(changeSets.map((changeSet) => changeSet.rowsUpdated)).toEqual([1]);
+    expect(firstChangeSet.itemsAdded).toBe(1);
+    expect(changeSets.map((changeSet) => changeSet.itemsUpdated)).toEqual([1]);
     expect(state.getAccount(scope).balances).toEqual([
       balance({ walletBalance: '1200.00' }),
     ]);

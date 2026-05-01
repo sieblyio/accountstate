@@ -168,10 +168,10 @@ describe('ExchangeAccountStateStore snapshots', () => {
 
     expect(changeSet).toMatchObject({
       changed: true,
-      rowsInserted: 1,
-      rowsUpdated: 0,
-      rowsTerminal: 0,
-      rowsStale: 0,
+      itemsAdded: 1,
+      itemsUpdated: 0,
+      itemsRemoved: 0,
+      itemsMarkedStale: 0,
       confidenceChanged: true,
     });
 
@@ -208,10 +208,10 @@ describe('ExchangeAccountStateStore snapshots', () => {
       }),
     ).toMatchObject({
       changed: false,
-      rowsInserted: 0,
-      rowsUpdated: 0,
-      rowsTerminal: 0,
-      rowsStale: 0,
+      itemsAdded: 0,
+      itemsUpdated: 0,
+      itemsRemoved: 0,
+      itemsMarkedStale: 0,
       confidenceChanged: false,
     });
   });
@@ -238,10 +238,10 @@ describe('ExchangeAccountStateStore snapshots', () => {
     });
 
     expect(changeSet).toMatchObject({
-      rowsInserted: 1,
-      rowsUpdated: 0,
-      rowsTerminal: 0,
-      rowsStale: 0,
+      itemsAdded: 1,
+      itemsUpdated: 0,
+      itemsRemoved: 0,
+      itemsMarkedStale: 0,
     });
     expect(
       state.getAccountView(scope).positions.map((row) => row.symbol),
@@ -281,10 +281,10 @@ describe('ExchangeAccountStateStore snapshots', () => {
     });
 
     expect(changeSet).toMatchObject({
-      rowsInserted: 0,
-      rowsUpdated: 1,
-      rowsTerminal: 1,
-      rowsStale: 0,
+      itemsAdded: 0,
+      itemsUpdated: 1,
+      itemsRemoved: 1,
+      itemsMarkedStale: 0,
     });
     expect(state.getAccountView(scope).positions).toEqual([
       position({ symbol: 'BTCUSDT', quantity: '0.200' }),
@@ -323,10 +323,10 @@ describe('ExchangeAccountStateStore snapshots', () => {
     });
 
     expect(changeSet).toMatchObject({
-      rowsInserted: 0,
-      rowsUpdated: 1,
-      rowsTerminal: 1,
-      rowsStale: 0,
+      itemsAdded: 0,
+      itemsUpdated: 1,
+      itemsRemoved: 1,
+      itemsMarkedStale: 0,
     });
     expect(
       state.getAccountView(scope).positions.map((row) => row.symbol),
@@ -378,9 +378,9 @@ describe('ExchangeAccountStateStore snapshots', () => {
     });
 
     expect(changeSet).toMatchObject({
-      rowsInserted: 0,
-      rowsUpdated: 1,
-      rowsTerminal: 0,
+      itemsAdded: 0,
+      itemsUpdated: 1,
+      itemsRemoved: 0,
     });
     expect(state.getAccountView(scope).positions).toEqual([
       {
@@ -413,8 +413,8 @@ describe('ExchangeAccountStateStore snapshots', () => {
     });
 
     expect(changeSet).toMatchObject({
-      rowsTerminal: 0,
-      rowsStale: 0,
+      itemsRemoved: 0,
+      itemsMarkedStale: 0,
     });
     expect(state.getAccountView(scope).positions).toEqual([
       position({ symbol: 'BTCUSDT' }),
@@ -453,8 +453,8 @@ describe('ExchangeAccountStateStore snapshots', () => {
     });
 
     expect(changeSet).toMatchObject({
-      rowsTerminal: 1,
-      rowsStale: 1,
+      itemsRemoved: 1,
+      itemsMarkedStale: 1,
       confidenceChanged: true,
     });
     expect(state.getAccountView(scope).openOrders).toEqual([
@@ -519,8 +519,8 @@ describe('ExchangeAccountStateStore snapshots', () => {
     });
 
     expect(changeSet).toMatchObject({
-      rowsTerminal: 1,
-      rowsStale: 0,
+      itemsRemoved: 1,
+      itemsMarkedStale: 0,
     });
     expect(
       state
@@ -568,8 +568,8 @@ describe('ExchangeAccountStateStore snapshots', () => {
     });
 
     expect(changeSet).toMatchObject({
-      rowsInserted: 0,
-      rowsUpdated: 1,
+      itemsAdded: 0,
+      itemsUpdated: 1,
     });
     expect(state.getAccountView(scope).openOrders).toHaveLength(1);
     expect(state.getAccountView(scope).openOrders[0]).toMatchObject({
@@ -654,12 +654,12 @@ describe('ExchangeAccountStateStore snapshots', () => {
     });
 
     expect(balanceChange).toMatchObject({
-      rowsInserted: 2,
-      rowsUpdated: 0,
+      itemsAdded: 2,
+      itemsUpdated: 0,
     });
     expect(fillChange).toMatchObject({
-      rowsInserted: 1,
-      rowsUpdated: 0,
+      itemsAdded: 1,
+      itemsUpdated: 0,
     });
 
     const replaceBalances = syncSnapshot(state, {
@@ -672,9 +672,9 @@ describe('ExchangeAccountStateStore snapshots', () => {
     });
 
     expect(replaceBalances).toMatchObject({
-      rowsInserted: 0,
-      rowsUpdated: 1,
-      rowsTerminal: 1,
+      itemsAdded: 0,
+      itemsUpdated: 1,
+      itemsRemoved: 1,
     });
     expect(state.getAccountView(scope).balances).toEqual([
       balance({ asset: 'USDT', walletBalance: '1200.00' }),
@@ -698,8 +698,8 @@ describe('ExchangeAccountStateStore snapshots', () => {
 
     expect(changeSet).toMatchObject({
       changed: true,
-      rowsInserted: 0,
-      rowsUpdated: 0,
+      itemsAdded: 0,
+      itemsUpdated: 0,
     });
     expect(changeSet.warnings.map((warning) => warning.name)).toEqual([
       'snapshot_row_subject_mismatch',

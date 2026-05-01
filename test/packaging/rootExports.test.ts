@@ -1,5 +1,17 @@
 import { createRequire } from 'node:module';
-import { existsSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { AccountStateStore } from '../../src/AccountStateStore';
@@ -11,6 +23,12 @@ import * as sourceCore from '../../src/core';
 import * as sourceRoot from '../../src/index';
 
 const requireFromTest = createRequire(__filename);
+const packageRoot = join(__dirname, '../..');
+const tscBin = join(packageRoot, 'node_modules/.bin/tsc');
+
+interface FixtureProjectOptions {
+  includeBinance?: boolean;
+}
 
 describe('root package exports', () => {
   it('keeps the current root source exports available', () => {
@@ -82,6 +100,101 @@ describe('root package exports', () => {
     expect(typeof builtRoot.getUnrealisedPnl).toBe('function');
   });
 
+  it('loads the package root in a fixture project without Binance installed', () => {
+    const projectDir = createPackageFixtureProject();
+    try {
+      const fixtureRequire = createRequire(join(projectDir, 'index.cjs'));
+
+      expect(() => fixtureRequire.resolve('binance')).toThrow();
+
+      const builtRoot = fixtureRequire('accountstate') as typeof sourceRoot;
+      const state = new builtRoot.ExchangeAccountStateStore();
+
+      expect(typeof builtRoot.AccountStateStore).toBe('function');
+      expect(typeof builtRoot.ExchangeAccountStateStore).toBe('function');
+      expect(state.getOpenOrders(fixtureScope)).toEqual([]);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('type-checks the package root in a fixture project without Binance installed', () => {
+    const projectDir = createPackageFixtureProject();
+    try {
+      writeFixtureTypeProject(
+        projectDir,
+        `
+          import { ExchangeAccountStateStore, type AccountScope } from 'accountstate';
+
+          const scope: AccountScope = {
+            exchange: 'test',
+            accountId: 'primary',
+            product: 'linear'
+          };
+
+          const state = new ExchangeAccountStateStore();
+          state.syncOpenOrders(scope, []);
+        `,
+      );
+
+      expect(runFixtureTsc(projectDir).ok).toBe(true);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports the missing Binance peer for Binance subpath type imports', () => {
+    const projectDir = createPackageFixtureProject();
+    try {
+      writeFixtureTypeProject(
+        projectDir,
+        `
+          import type { BinanceUsdmPositionRow } from 'accountstate/binance';
+
+          const row: BinanceUsdmPositionRow | undefined = undefined;
+          void row;
+        `,
+      );
+
+      const result = runFixtureTsc(projectDir);
+
+      expect(result.ok).toBe(false);
+      expect(result.output).toContain("Cannot find module 'binance'");
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('type-checks the Binance subpath when the Binance peer is installed', () => {
+    const projectDir = createPackageFixtureProject({ includeBinance: true });
+    try {
+      writeFixtureTypeProject(
+        projectDir,
+        `
+          import { binance, type BinanceUsdmPositionRow } from 'accountstate/binance';
+          import type { AccountScope } from 'accountstate';
+
+          const scope: AccountScope = {
+            exchange: 'binance',
+            accountId: 'primary',
+            product: 'usdm'
+          };
+
+          declare const rows: BinanceUsdmPositionRow[];
+          const fact = binance.rest.positions(scope, rows);
+          void fact;
+        `,
+      );
+
+      const result = runFixtureTsc(projectDir);
+
+      expect(result.ok).toBe(true);
+      expect(result.output).toBe('');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
   it('loads the built CommonJS core subpath after build', () => {
     const builtCore = requireFromTest('accountstate/core') as typeof sourceCore;
 
@@ -130,4 +243,160 @@ describe('root package exports', () => {
       expect(js).not.toContain('require("binance")');
     }
   });
+
+  it('keeps reducer and fact types out of the root declaration surface', () => {
+    const rootDts = readFileSync(
+      join(__dirname, '../../dist/mjs/index.d.ts'),
+      'utf8',
+    );
+    const coreDts = readFileSync(
+      join(__dirname, '../../dist/mjs/core/index.d.ts'),
+      'utf8',
+    );
+
+    for (const internalType of [
+      'AccountFact',
+      'RestSnapshotFact',
+      'StreamHealthFact',
+      'TerminalEvidenceFact',
+      'SnapshotInput',
+      'Provenance',
+      'AccountViewConfidence',
+    ]) {
+      expect(rootDts).not.toContain(internalType);
+    }
+
+    expect(coreDts).toContain('AccountFact');
+    expect(coreDts).toContain('SnapshotInput');
+  });
+
+  it('keeps root output exchange-agnostic and adapters free of SDK side effects', () => {
+    for (const file of [
+      join(__dirname, '../../dist/cjs/index.js'),
+      join(__dirname, '../../dist/mjs/index.js'),
+      join(__dirname, '../../dist/cjs/index.d.ts'),
+      join(__dirname, '../../dist/mjs/index.d.ts'),
+    ]) {
+      expect(existsSync(file)).toBe(true);
+      const content = readFileSync(file, 'utf8');
+      expect(content).not.toContain('adapters/binance');
+      expect(content).not.toContain('accountstate/binance');
+      expect(content).not.toContain('binance');
+    }
+
+    const adapterFiles = [
+      ...findFiles(join(packageRoot, 'src/adapters/binance'), '.ts'),
+      ...findFiles(join(packageRoot, 'dist/cjs/adapters/binance'), '.js'),
+      ...findFiles(join(packageRoot, 'dist/mjs/adapters/binance'), '.js'),
+    ];
+
+    for (const file of adapterFiles) {
+      const content = readFileSync(file, 'utf8');
+      expect(content).not.toContain('process.env');
+      expect(content).not.toContain('setTimeout');
+      expect(content).not.toContain('setInterval');
+      expect(content).not.toMatch(
+        /\bnew\s+(?:MainClient|USDMClient|WebsocketClient|WebsocketAPIClient|CoinMClient|PortfolioClient)\b/,
+      );
+    }
+  });
 });
+
+const fixtureScope = {
+  exchange: 'fixture',
+  accountId: 'primary',
+  product: 'test',
+};
+
+function createPackageFixtureProject(
+  options: FixtureProjectOptions = {},
+): string {
+  const projectDir = mkdtempSync(join(tmpdir(), 'accountstate-package-'));
+  const nodeModulesDir = join(projectDir, 'node_modules');
+  const packageDir = join(nodeModulesDir, 'accountstate');
+
+  mkdirSync(nodeModulesDir, { recursive: true });
+  mkdirSync(packageDir, { recursive: true });
+  cpSync(join(packageRoot, 'dist'), join(packageDir, 'dist'), {
+    recursive: true,
+  });
+  cpSync(join(packageRoot, 'package.json'), join(packageDir, 'package.json'));
+  cpSync(join(packageRoot, 'README.md'), join(packageDir, 'README.md'));
+  writeFileSync(
+    join(projectDir, 'package.json'),
+    JSON.stringify({ private: true, type: 'module' }, null, 2),
+  );
+
+  if (options.includeBinance) {
+    symlinkSync(
+      join(packageRoot, 'node_modules/binance'),
+      join(nodeModulesDir, 'binance'),
+      'dir',
+    );
+  }
+
+  return projectDir;
+}
+
+function writeFixtureTypeProject(projectDir: string, source: string): void {
+  writeFileSync(join(projectDir, 'index.ts'), source);
+  writeFileSync(
+    join(projectDir, 'tsconfig.json'),
+    JSON.stringify(
+      {
+        compilerOptions: {
+          target: 'ES2022',
+          module: 'ESNext',
+          moduleResolution: 'Bundler',
+          strict: true,
+          skipLibCheck: false,
+          noEmit: true,
+          types: [],
+        },
+        include: ['index.ts'],
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function runFixtureTsc(projectDir: string): { ok: boolean; output: string } {
+  try {
+    const output = execFileSync(tscBin, ['-p', 'tsconfig.json'], {
+      cwd: projectDir,
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+    return { ok: true, output };
+  } catch (error) {
+    const execError = error as {
+      stdout?: Buffer | string;
+      stderr?: Buffer | string;
+    };
+    return {
+      ok: false,
+      output: `${execError.stdout?.toString() ?? ''}${
+        execError.stderr?.toString() ?? ''
+      }`,
+    };
+  }
+}
+
+function findFiles(root: string, extension: string): string[] {
+  const entries = readdirSync(root, {
+    withFileTypes: true,
+  });
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    const fullPath = join(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...findFiles(fullPath, extension));
+    } else if (entry.isFile() && entry.name.endsWith(extension)) {
+      files.push(fullPath);
+    }
+  }
+
+  return files;
+}

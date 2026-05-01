@@ -455,10 +455,10 @@ export function createUnsupportedFactChangeSet(
   return {
     scope: copyScope(scope),
     changed: true,
-    rowsInserted: 0,
-    rowsUpdated: 0,
-    rowsTerminal: 0,
-    rowsStale: 0,
+    itemsAdded: 0,
+    itemsUpdated: 0,
+    itemsRemoved: 0,
+    itemsMarkedStale: 0,
     confidenceChanged: false,
     lifecycleChanges: [],
     warnings: [

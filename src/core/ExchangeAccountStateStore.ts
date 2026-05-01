@@ -627,7 +627,9 @@ export class ExchangeAccountStateStore {
     state.confidence = {
       ...state.confidence,
       [confidenceKeyForSubject(input.subject)]:
-        changeSet.rowsStale > 0 ? 'stale' : confidenceFromSource(input.source),
+        changeSet.itemsMarkedStale > 0
+          ? 'stale'
+          : confidenceFromSource(input.source),
     };
     const syncRequestsCleared = isSyncingSnapshotSource(input.source)
       ? clearSyncRequestsForSubject(state, input.subject)
@@ -758,7 +760,7 @@ export class ExchangeAccountStateStore {
     const key = getOrderKey(provisionalOrder);
     if (!existing) {
       state.openOrders.set(key, cloneOrder(provisionalOrder));
-      changeSet.rowsInserted++;
+      changeSet.itemsAdded++;
       changeSet.changed = true;
     } else {
       if (existingKey && existingKey !== key) {
@@ -766,7 +768,7 @@ export class ExchangeAccountStateStore {
       }
       if (!areRowsEqual(existing, provisionalOrder) || existingKey !== key) {
         state.openOrders.set(key, cloneOrder(provisionalOrder));
-        changeSet.rowsUpdated++;
+        changeSet.itemsUpdated++;
         changeSet.changed = true;
       }
     }
@@ -804,7 +806,7 @@ export class ExchangeAccountStateStore {
       ? this.#removeOrderByIdentity(state.openOrders, identity)
       : 0;
 
-    changeSet.rowsTerminal += terminalRows;
+    changeSet.itemsRemoved += terminalRows;
     changeSet.warnings.push({
       name: 'local_submission_rejected',
       scope: input.scope,
@@ -892,13 +894,13 @@ export class ExchangeAccountStateStore {
   #markOrderTerminal(input: TerminalEvidenceFact): ChangeSet {
     const state = this.#getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
-    const rowsTerminal = this.#removeOrderByIdentity(
+    const itemsRemoved = this.#removeOrderByIdentity(
       state.openOrders,
       input.identity,
     );
 
-    changeSet.rowsTerminal = rowsTerminal;
-    if (rowsTerminal === 0) {
+    changeSet.itemsRemoved = itemsRemoved;
+    if (itemsRemoved === 0) {
       changeSet.warnings.push({
         name: 'terminal_order_not_found',
         scope: input.scope,
@@ -909,7 +911,7 @@ export class ExchangeAccountStateStore {
         },
       });
     }
-    changeSet.changed = rowsTerminal > 0 || changeSet.warnings.length > 0;
+    changeSet.changed = itemsRemoved > 0 || changeSet.warnings.length > 0;
 
     this.#reconcileLifecycles(state, input.scope, changeSet);
 
@@ -1121,7 +1123,7 @@ export class ExchangeAccountStateStore {
 
       if (input.subject === 'positions' && isTerminalPosition(row)) {
         if (collection.delete(key)) {
-          changeSet.rowsTerminal++;
+          changeSet.itemsRemoved++;
           changeSet.changed = true;
         }
         continue;
@@ -1131,7 +1133,7 @@ export class ExchangeAccountStateStore {
       const existing = existingKey ? collection.get(existingKey) : undefined;
       if (!existing) {
         collection.set(key, cloneRow(row));
-        changeSet.rowsInserted++;
+        changeSet.itemsAdded++;
         changeSet.changed = true;
         continue;
       }
@@ -1142,7 +1144,7 @@ export class ExchangeAccountStateStore {
 
       if (!areRowsEqual(existing, row)) {
         collection.set(key, cloneRow(row));
-        changeSet.rowsUpdated++;
+        changeSet.itemsUpdated++;
         changeSet.changed = true;
       } else if (existingKey !== key) {
         collection.set(key, cloneRow(row));
@@ -1163,8 +1165,8 @@ export class ExchangeAccountStateStore {
 
     if (replacementResult.terminal > 0 || replacementResult.stale > 0) {
       changeSet.changed = true;
-      changeSet.rowsTerminal += replacementResult.terminal;
-      changeSet.rowsStale += replacementResult.stale;
+      changeSet.itemsRemoved += replacementResult.terminal;
+      changeSet.itemsMarkedStale += replacementResult.stale;
     }
   }
 
@@ -1524,16 +1526,16 @@ function isZeroDecimalString(value: string): boolean {
 }
 
 /**
- * Build a neutral change set for one reducer application.
+ * Build a neutral change set for one state operation.
  */
 function createEmptyChangeSet(scope: AccountScope): ChangeSet {
   return {
     scope: copyScope(scope),
     changed: false,
-    rowsInserted: 0,
-    rowsUpdated: 0,
-    rowsTerminal: 0,
-    rowsStale: 0,
+    itemsAdded: 0,
+    itemsUpdated: 0,
+    itemsRemoved: 0,
+    itemsMarkedStale: 0,
     confidenceChanged: false,
     lifecycleChanges: [],
     warnings: [],
