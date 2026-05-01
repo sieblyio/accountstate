@@ -87,7 +87,7 @@ balances through `binance.ws.userDataEvent()`.
 Regular Binance order IDs map to regular account-state identity:
 
 - Binance `orderId` -> `exchangeOrderId`
-- Binance `clientOrderId` -> `customClientOrderId`
+- Binance `clientOrderId` -> `customOrderId`
 
 Binance Algo/conditional IDs map to trigger-order identity:
 
@@ -97,12 +97,12 @@ Binance Algo/conditional IDs map to trigger-order identity:
 Normal users should usually query by the regular fields they already know:
 
 ```typescript
-state.getOrder(scope, { customClientOrderId: 'client-1' });
+state.getOrder(scope, { customOrderId: 'order-1' });
 state.getOrder(scope, { exchangeOrderId: '1001' });
 ```
 
 Trigger-order identity exists so a generated regular order and its triggering
-Algo order do not collide when Binance reuses client IDs across both objects.
+Algo order do not collide when Binance reuses custom IDs across both objects.
 
 ## Algo Trigger Lifecycle
 
@@ -143,7 +143,7 @@ const normalized = classifyBinanceSubmissionError(error);
 if (isBinanceUnknownOrderError(error)) {
   state.orderNotFound({
     scope,
-    identity: { customClientOrderId: 'client-1' },
+    identity: { customOrderId: 'order-1' },
   });
 }
 ```

@@ -1,5 +1,0 @@
-# This is a read token to easily acess this module in other projects. Copy this to other projects and rename it to .npmrc
-# Keep this secret!!
-registry=https://registry.npmjs.org/
-@tsquant:registry=https://registry.npmjs.org/
-//registry.npmjs.org/:_authToken=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

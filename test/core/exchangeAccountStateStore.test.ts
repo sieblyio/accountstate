@@ -46,7 +46,7 @@ function order(overrides: Partial<NormalizedOrder> = {}): NormalizedOrder {
     symbol: 'BTCUSDT',
     kind: 'regular',
     exchangeOrderId: '1001',
-    customClientOrderId: 'client-1001',
+    customOrderId: 'client-1001',
     side: 'BUY',
     type: 'LIMIT',
     status: 'new',
@@ -425,12 +425,12 @@ describe('ExchangeAccountStateStore snapshots', () => {
     const state = new ExchangeAccountStateStore();
     const appOrder = order({
       exchangeOrderId: '1001',
-      customClientOrderId: 'app-1001',
+      customOrderId: 'app-1001',
       owner: 'app',
     });
     const manualOrder = order({
       exchangeOrderId: '1002',
-      customClientOrderId: 'manual-1002',
+      customOrderId: 'manual-1002',
       owner: 'manual',
     });
 
@@ -486,14 +486,14 @@ describe('ExchangeAccountStateStore snapshots', () => {
       symbol: 'BTCUSDT',
       kind: 'algo',
       exchangeOrderId: undefined,
-      customClientOrderId: undefined,
+      customOrderId: undefined,
       customTriggerOrderId: 'algo-client-1',
     });
     const ethRegular = order({
       symbol: 'ETHUSDT',
       kind: 'regular',
       exchangeOrderId: '1002',
-      customClientOrderId: 'client-1002',
+      customOrderId: 'client-1002',
     });
 
     syncSnapshot(state, {
@@ -532,7 +532,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
     ]);
   });
 
-  it('order upserts reconcile client-id-only rows with later exchange ids', () => {
+  it('order upserts reconcile custom-id-only rows with later exchange ids', () => {
     const state = new ExchangeAccountStateStore();
 
     syncSnapshot(state, {
@@ -542,7 +542,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       rows: [
         order({
           exchangeOrderId: undefined,
-          customClientOrderId: 'client-1001',
+          customOrderId: 'client-1001',
           status: 'provisional',
           source: 'local',
         }),
@@ -558,7 +558,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
       rows: [
         order({
           exchangeOrderId: '1001',
-          customClientOrderId: 'client-1001',
+          customOrderId: 'client-1001',
           status: 'new',
           source: 'rest',
         }),
@@ -574,7 +574,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
     expect(state.getAccountView(scope).openOrders).toHaveLength(1);
     expect(state.getAccountView(scope).openOrders[0]).toMatchObject({
       exchangeOrderId: '1001',
-      customClientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       status: 'new',
     });
   });
@@ -590,14 +590,14 @@ describe('ExchangeAccountStateStore snapshots', () => {
         order({
           kind: 'regular',
           exchangeOrderId: '1001',
-          customClientOrderId: 'shared-client-id',
+          customOrderId: 'shared-custom-id',
         }),
         order({
           kind: 'algo',
           exchangeOrderId: undefined,
-          customClientOrderId: undefined,
+          customOrderId: undefined,
           exchangeTriggerOrderId: 'trigger-1001',
-          customTriggerOrderId: 'shared-client-id',
+          customTriggerOrderId: 'shared-custom-id',
           type: 'STOP_MARKET',
           side: 'SELL',
         }),
@@ -608,10 +608,10 @@ describe('ExchangeAccountStateStore snapshots', () => {
 
     expect(state.getOpenOrders(scope)).toHaveLength(2);
     expect(
-      state.getOrder(scope, { customClientOrderId: 'shared-client-id' }),
+      state.getOrder(scope, { customOrderId: 'shared-custom-id' }),
     ).toMatchObject({ kind: 'regular', exchangeOrderId: '1001' });
     expect(
-      state.getOrder(scope, { customTriggerOrderId: 'shared-client-id' }),
+      state.getOrder(scope, { customTriggerOrderId: 'shared-custom-id' }),
     ).toMatchObject({
       kind: 'algo',
       exchangeTriggerOrderId: 'trigger-1001',
@@ -619,7 +619,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
 
     state.orderNotFound({
       scope,
-      identity: { customTriggerOrderId: 'shared-client-id' },
+      identity: { customTriggerOrderId: 'shared-custom-id' },
       reason: 'triggered',
       atMs: 2,
     });
@@ -627,7 +627,7 @@ describe('ExchangeAccountStateStore snapshots', () => {
     expect(state.getOpenOrders(scope)).toEqual([
       expect.objectContaining({
         kind: 'regular',
-        customClientOrderId: 'shared-client-id',
+        customOrderId: 'shared-custom-id',
       }),
     ]);
   });

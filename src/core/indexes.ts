@@ -34,8 +34,8 @@ export function getOrderKey(order: NormalizedOrder): string {
   if (order.exchangeOrderId) {
     return `exchangeOrderId:${order.exchangeOrderId}`;
   }
-  if (order.customClientOrderId) {
-    return `customClientOrderId:${order.customClientOrderId}`;
+  if (order.customOrderId) {
+    return `customOrderId:${order.customOrderId}`;
   }
   if (order.exchangeTriggerOrderId) {
     return `exchangeTriggerOrderId:${order.exchangeTriggerOrderId}`;
@@ -69,8 +69,8 @@ export function getFillKey(fill: NormalizedFill): string {
   if (fill.exchangeOrderId) {
     return `exchangeOrderId:${fill.exchangeOrderId}:${fill.executedAtMs}`;
   }
-  if (fill.customClientOrderId) {
-    return `customClientOrderId:${fill.customClientOrderId}:${fill.executedAtMs}`;
+  if (fill.customOrderId) {
+    return `customOrderId:${fill.customOrderId}:${fill.executedAtMs}`;
   }
   if (fill.customTriggerOrderId) {
     return `customTriggerOrderId:${fill.customTriggerOrderId}:${fill.executedAtMs}`;
@@ -89,7 +89,7 @@ export function getFillKey(fill: NormalizedFill): string {
 /**
  * Return true when two order rows carry any shared strong identity.
  *
- * Used to converge local client-id-only orders with later exchange-confirmed
+ * Used to converge local custom-id-only orders with later exchange-confirmed
  * rows without creating duplicates.
  */
 export function ordersShareIdentity(
@@ -98,7 +98,7 @@ export function ordersShareIdentity(
 ): boolean {
   return (
     sharesDefinedValue(a.exchangeOrderId, b.exchangeOrderId) ||
-    sharesDefinedValue(a.customClientOrderId, b.customClientOrderId) ||
+    sharesDefinedValue(a.customOrderId, b.customOrderId) ||
     sharesDefinedValue(a.exchangeTriggerOrderId, b.exchangeTriggerOrderId) ||
     sharesDefinedValue(a.customTriggerOrderId, b.customTriggerOrderId)
   );
@@ -114,8 +114,8 @@ export function orderMatchesIdentity(
   return (
     sharesDefinedValue(order.exchangeOrderId, identity.exchangeOrderId) ||
     sharesDefinedValue(
-      order.customClientOrderId,
-      identity.customClientOrderId,
+      order.customOrderId,
+      identity.customOrderId,
     ) ||
     sharesDefinedValue(
       order.exchangeTriggerOrderId,

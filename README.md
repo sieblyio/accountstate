@@ -124,7 +124,7 @@ The common query methods are intentionally direct:
 ```typescript
 const positions = state.getPositions(scope);
 const openOrders = state.getOpenOrders(scope, { symbol: 'BTCUSDT' });
-const order = state.getOrder(scope, { customClientOrderId: 'my-client-id' });
+const order = state.getOrder(scope, { customOrderId: 'my-order-id' });
 const balance = state.getBalance(scope, 'USDT');
 ```
 
@@ -191,8 +191,8 @@ parser once:
 ```typescript
 state.registerManagedOrderParser({
   parse(order) {
-    const clientId = order.customClientOrderId ?? order.customTriggerOrderId;
-    return clientId ? parseMyManagedClientId(clientId) : undefined;
+    const customId = order.customOrderId ?? order.customTriggerOrderId;
+    return customId ? parseMyManagedOrderId(customId) : undefined;
   },
 });
 ```

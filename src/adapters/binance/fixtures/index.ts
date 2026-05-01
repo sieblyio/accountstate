@@ -66,7 +66,7 @@ export const binanceAccountStateFixtures = [
         {
           kind: 'regular',
           exchangeOrderId: '1000252371396',
-          customClientOrderId: 'x-15PC4ZJyPM-U-L-L-D-01-L1-0',
+          customOrderId: 'x-15PC4ZJyPM-U-L-L-D-01-L1-0',
           exchangePositionSide: 'LONG',
           strategySide: 'LONG',
         },
@@ -157,7 +157,7 @@ export const binanceAccountStateFixtures = [
           kind: 'regular',
           symbol: 'BRUSDT',
           exchangeOrderId: '999139867',
-          customClientOrderId: 'x-15PC4ZJyPFmom0ss0n',
+          customOrderId: 'x-15PC4ZJyPFmom0ss0n',
           status: 'partially_filled',
           quantity: '1394',
           executedQuantity: '697',
@@ -184,7 +184,7 @@ export const binanceAccountStateFixtures = [
           kind: 'regular',
           symbol: 'BRUSDT',
           exchangeOrderId: '999139867',
-          customClientOrderId: 'x-15PC4ZJyPFmom0ss0n',
+          customOrderId: 'x-15PC4ZJyPFmom0ss0n',
           status: 'partially_filled',
           quantity: '1394',
           executedQuantity: '47',
@@ -196,7 +196,7 @@ export const binanceAccountStateFixtures = [
         {
           exchangeTradeId: '88874931',
           exchangeOrderId: '999139867',
-          customClientOrderId: 'x-15PC4ZJyPFmom0ss0n',
+          customOrderId: 'x-15PC4ZJyPFmom0ss0n',
           quantity: '47',
           price: '0.16074',
         },
@@ -229,7 +229,7 @@ export const binanceAccountStateFixtures = [
       openOrders: [
         {
           kind: 'regular',
-          customClientOrderId: 'x-15PC4ZJyPM-U-L-B-D-01-L1-0',
+          customOrderId: 'x-15PC4ZJyPM-U-L-B-D-01-L1-0',
         },
         {
           kind: 'algo',
@@ -262,7 +262,7 @@ export const binanceAccountStateFixtures = [
         {
           exchangeTradeId: '7617670499',
           exchangeOrderId: '1000254156391',
-          customClientOrderId: 'web_usdt_vsharuft57kb0tle5qv1p1s',
+          customOrderId: 'web_usdt_vsharuft57kb0tle5qv1p1s',
           quantity: '0.006',
           price: '76430.3',
         },
@@ -318,7 +318,7 @@ export const binanceAccountStateFixtures = [
           kind: 'regular',
           symbol: 'BRUSDT',
           exchangeOrderId: '1000517687',
-          customClientOrderId: 'x-15PC4ZJyATmom1v3ns',
+          customOrderId: 'x-15PC4ZJyATmom1v3ns',
           type: 'MARKET',
           status: 'new',
           exchangePositionSide: 'SHORT',
@@ -363,7 +363,7 @@ export const binanceAccountStateFixtures = [
         {
           exchangeTradeId: '88940130',
           exchangeOrderId: '1000517687',
-          customClientOrderId: 'x-15PC4ZJyATmom1v3ns',
+          customOrderId: 'x-15PC4ZJyATmom1v3ns',
           quantity: '153',
           price: '0.16312',
         },

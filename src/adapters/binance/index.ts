@@ -31,7 +31,7 @@ export {
   binanceRawSamples,
 } from './fixtures/index.js';
 
-export type { BinanceManagedClientIdParser } from './managedIds.js';
+export type { BinanceManagedOrderIdParser } from './managedIds.js';
 
 export type {
   BinanceRestSnapshotOptions,

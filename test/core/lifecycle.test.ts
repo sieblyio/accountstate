@@ -36,7 +36,7 @@ function order(overrides: Partial<NormalizedOrder> = {}): NormalizedOrder {
     symbol: 'BTCUSDT',
     kind: 'regular',
     exchangeOrderId: '1001',
-    customClientOrderId: 'client-1001',
+    customOrderId: 'client-1001',
     side: 'SELL',
     type: 'LIMIT',
     status: 'new',
@@ -167,7 +167,7 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
 
     const terminal = state.orderNotFound({
       scope,
-      identity: { customClientOrderId: 'client-1001' },
+      identity: { customOrderId: 'client-1001' },
       atMs: 3,
     });
 
@@ -234,7 +234,7 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
 
     state.registerManagedOrderParser({
       parse(candidate) {
-        return candidate.customClientOrderId?.startsWith('managed-')
+        return candidate.customOrderId?.startsWith('managed-')
           ? metadata
           : undefined;
       },
@@ -244,7 +244,7 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
       scope,
       [
         order({
-          customClientOrderId: 'managed-tp-1',
+          customOrderId: 'managed-tp-1',
           owner: 'unknown',
           metadata: undefined,
         }),
@@ -253,7 +253,7 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
     );
 
     expect(
-      state.getOrder(scope, { customClientOrderId: 'managed-tp-1' }),
+      state.getOrder(scope, { customOrderId: 'managed-tp-1' }),
     ).toMatchObject({
       owner: 'app',
       metadata,

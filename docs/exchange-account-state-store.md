@@ -125,7 +125,7 @@ const position = state.getPosition(scope, {
   exchangePositionSide: 'LONG',
 });
 const openOrders = state.getOpenOrders(scope, { symbol: 'BTCUSDT' });
-const order = state.getOrder(scope, { customClientOrderId: 'client-1' });
+const order = state.getOrder(scope, { customOrderId: 'order-1' });
 const balance = state.getBalance(scope, 'USDT');
 ```
 
@@ -140,14 +140,14 @@ After submitting an order, record the outcome you know:
 state.orderAccepted({
   scope,
   intentId: 'intent-1',
-  clientOrderId: 'client-1',
+  customOrderId: 'order-1',
   order: provisionalOrder,
 });
 
 state.orderRejected({
   scope,
   intentId: 'intent-2',
-  clientOrderId: 'client-2',
+  customOrderId: 'order-2',
   error: {
     message: 'Insufficient margin',
     retryable: false,
@@ -157,7 +157,7 @@ state.orderRejected({
 state.orderStatusUnknown({
   scope,
   intentId: 'intent-3',
-  clientOrderId: 'client-3',
+  customOrderId: 'order-3',
   error: {
     message: 'Request timed out',
     retryable: true,
@@ -170,7 +170,7 @@ For cancel or unknown-order responses:
 ```typescript
 state.orderCancelled({
   scope,
-  identity: { customClientOrderId: 'client-1' },
+  identity: { customOrderId: 'order-1' },
 });
 
 state.orderNotFound({

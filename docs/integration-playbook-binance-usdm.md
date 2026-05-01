@@ -106,12 +106,12 @@ Accepted place:
 state.orderAccepted({
   scope,
   intentId: intent.id,
-  clientOrderId: intent.clientOrderId,
+  customOrderId: intent.customOrderId,
   order: provisionalOrder,
 });
 ```
 
-For accepted trigger/Algo orders, put the trigger client id on the provisional
+For accepted trigger/Algo orders, put the trigger custom id on the provisional
 order itself:
 
 ```typescript
@@ -121,7 +121,7 @@ state.orderAccepted({
   order: {
     ...provisionalAlgoOrder,
     kind: 'algo',
-    customTriggerOrderId: intent.clientAlgoId,
+    customTriggerOrderId: intent.customTriggerOrderId,
   },
 });
 ```
@@ -131,7 +131,7 @@ Accepted cancel:
 ```typescript
 state.orderCancelled({
   scope,
-  identity: { customClientOrderId: targetClientOrderId },
+  identity: { customOrderId: targetCustomOrderId },
 });
 ```
 
@@ -140,7 +140,7 @@ Accepted Algo cancel:
 ```typescript
 state.orderCancelled({
   scope,
-  identity: { customTriggerOrderId: targetClientAlgoId },
+  identity: { customTriggerOrderId: targetCustomTriggerOrderId },
 });
 ```
 
@@ -152,7 +152,7 @@ import { isBinanceUnknownOrderError } from 'accountstate/binance';
 if (isBinanceUnknownOrderError(error)) {
   state.orderNotFound({
     scope,
-    identity: { customClientOrderId: targetClientOrderId },
+    identity: { customOrderId: targetCustomOrderId },
   });
 }
 ```
@@ -165,7 +165,7 @@ import { classifyBinanceSubmissionError } from 'accountstate/binance';
 state.orderRejected({
   scope,
   intentId: intent.id,
-  clientOrderId: intent.clientOrderId,
+  customOrderId: intent.customOrderId,
   error: classifyBinanceSubmissionError(error),
 });
 ```
@@ -176,7 +176,7 @@ Timed-out or indeterminate submit:
 state.orderStatusUnknown({
   scope,
   intentId: intent.id,
-  clientOrderId: intent.clientOrderId,
+  customOrderId: intent.customOrderId,
   error: {
     message: 'Submit request timed out before exchange status was known',
     retryable: true,
@@ -251,7 +251,7 @@ if (!account.readyToTrade) {
 
 const positions = state.getPositions(scope, { symbol: 'BTCUSDT' });
 const openOrders = state.getOpenOrders(scope, { symbol: 'BTCUSDT' });
-const order = state.getOrder(scope, { customClientOrderId: 'client-1' });
+const order = state.getOrder(scope, { customOrderId: 'order-1' });
 
 planner.plan({ account, positions, openOrders, order });
 ```
@@ -273,7 +273,7 @@ Binance USD-M Algo orders and generated regular orders are separate rows:
 
 - `clientAlgoId` maps to `customTriggerOrderId`.
 - `algoId` maps to `exchangeTriggerOrderId`.
-- regular `clientOrderId` maps to `customClientOrderId`.
+- regular `clientOrderId` maps to `customOrderId`.
 - regular `orderId` maps to `exchangeOrderId`.
 
 When an Algo order triggers, Binance can emit `ALGO_UPDATE` events for the Algo

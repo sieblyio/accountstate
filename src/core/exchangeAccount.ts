@@ -140,7 +140,7 @@ export interface StreamHealthOptions {
 export interface OrderAcceptedInput {
   scope: AccountScope;
   intentId: string;
-  clientOrderId?: string;
+  customOrderId?: string;
   order: NormalizedOrder;
   acceptedAtMs?: TimestampMs;
   responseSummary?: unknown;
@@ -152,7 +152,7 @@ export interface OrderAcceptedInput {
 export interface OrderRejectedInput {
   scope: AccountScope;
   intentId: string;
-  clientOrderId?: string;
+  customOrderId?: string;
   error: LocalSubmissionRejectedFact['error'];
   rejectedAtMs?: TimestampMs;
 }
@@ -163,7 +163,7 @@ export interface OrderRejectedInput {
 export interface OrderStatusUnknownInput {
   scope: AccountScope;
   intentId: string;
-  clientOrderId?: string;
+  customOrderId?: string;
   error: LocalSubmissionUnknownFact['error'];
   atMs?: TimestampMs;
 }
@@ -350,7 +350,7 @@ export function createOrderAcceptedFact(
     type: 'local_submission_accepted',
     scope: copyScope(input.scope),
     intentId: input.intentId,
-    clientId: input.clientOrderId,
+    customOrderId: input.customOrderId,
     order: input.order,
     acceptedAtMs,
     responseSummary: input.responseSummary,
@@ -367,7 +367,7 @@ export function createOrderRejectedFact(
     type: 'local_submission_rejected',
     scope: copyScope(input.scope),
     intentId: input.intentId,
-    clientId: input.clientOrderId,
+    customOrderId: input.customOrderId,
     error: input.error,
     rejectedAtMs: input.rejectedAtMs ?? Date.now(),
   };
@@ -383,7 +383,7 @@ export function createOrderStatusUnknownFact(
     type: 'local_submission_unknown',
     scope: copyScope(input.scope),
     intentId: input.intentId,
-    clientId: input.clientOrderId,
+    customOrderId: input.customOrderId,
     error: input.error,
     atMs: input.atMs ?? Date.now(),
   };

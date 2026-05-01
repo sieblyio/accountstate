@@ -69,7 +69,7 @@ export interface LocalSubmissionAcceptedFact {
   type: 'local_submission_accepted';
   scope: AccountScope;
   intentId: string;
-  clientId?: string;
+  customOrderId?: string;
   order: NormalizedOrder;
   acceptedAtMs: TimestampMs;
   responseSummary?: unknown;
@@ -79,7 +79,7 @@ export interface LocalSubmissionRejectedFact {
   type: 'local_submission_rejected';
   scope: AccountScope;
   intentId: string;
-  clientId?: string;
+  customOrderId?: string;
   error: NormalizedSubmissionError;
   rejectedAtMs: TimestampMs;
 }
@@ -88,7 +88,7 @@ export interface LocalSubmissionUnknownFact {
   type: 'local_submission_unknown';
   scope: AccountScope;
   intentId: string;
-  clientId?: string;
+  customOrderId?: string;
   error: NormalizedSubmissionError;
   atMs: TimestampMs;
 }

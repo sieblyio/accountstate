@@ -47,7 +47,7 @@ function normalizedOrder(overrides: Partial<NormalizedOrder> = {}) {
     symbol: 'BTCUSDT',
     kind: 'regular',
     exchangeOrderId: '12345',
-    customClientOrderId: 'client-12345',
+    customOrderId: 'client-12345',
     side: 'BUY',
     type: 'LIMIT',
     status: 'new',
@@ -107,14 +107,14 @@ describe('core type contracts', () => {
         type: 'local_submission_accepted',
         scope,
         intentId: 'intent-1',
-        clientId: 'client-12345',
+        customOrderId: 'client-12345',
         order: normalizedOrder({ status: 'provisional', source: 'local' }),
         acceptedAtMs: 1_700_000_000_200,
       },
       {
         type: 'terminal_evidence',
         scope,
-        identity: { customClientOrderId: 'client-12345' },
+        identity: { customOrderId: 'client-12345' },
         reason: 'cancelled',
         atMs: 1_700_000_000_300,
       },
@@ -212,7 +212,7 @@ describe('core type contracts', () => {
           .map((candidateOrder) => ({
             message: 'Open order is missing a symbol.',
             context: {
-              customClientOrderId: candidateOrder.customClientOrderId,
+              customOrderId: candidateOrder.customOrderId,
             },
           }));
       },
@@ -222,13 +222,13 @@ describe('core type contracts', () => {
       name: 'exact_client_id_match',
       applies(desired, active) {
         return Boolean(
-          desired.customClientOrderId && active.customClientOrderId,
+          desired.customOrderId && active.customOrderId,
         );
       },
       equivalent(desired, active) {
         return {
           equivalent:
-            desired.customClientOrderId === active.customClientOrderId,
+            desired.customOrderId === active.customOrderId,
         };
       },
     };

@@ -4,8 +4,8 @@ import type {
   NormalizedOrder,
 } from '../../core/types.js';
 
-export type BinanceManagedClientIdParser = (
-  clientId: string,
+export type BinanceManagedOrderIdParser = (
+  customId: string,
   order: NormalizedOrder,
 ) => ManagedOrderMetadata | undefined;
 
@@ -14,12 +14,12 @@ export type BinanceManagedClientIdParser = (
  * `clientOrderId` and trigger-order `clientAlgoId` values.
  */
 export function createBinanceManagedOrderParser(
-  parseClientId: BinanceManagedClientIdParser,
+  parseCustomId: BinanceManagedOrderIdParser,
 ): ManagedOrderParser {
   return {
     parse(order: NormalizedOrder): ManagedOrderMetadata | undefined {
-      const clientId = order.customClientOrderId ?? order.customTriggerOrderId;
-      return clientId ? parseClientId(clientId, order) : undefined;
+      const customId = order.customOrderId ?? order.customTriggerOrderId;
+      return customId ? parseCustomId(customId, order) : undefined;
     },
   };
 }

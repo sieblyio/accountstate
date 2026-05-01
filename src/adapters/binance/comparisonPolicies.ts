@@ -120,8 +120,8 @@ function ordersShareAnyIdentity(
   return (
     sharesDefinedValue(desired.exchangeOrderId, active.exchangeOrderId) ||
     sharesDefinedValue(
-      desired.customClientOrderId,
-      active.customClientOrderId,
+      desired.customOrderId,
+      active.customOrderId,
     ) ||
     sharesDefinedValue(
       desired.customTriggerOrderId,

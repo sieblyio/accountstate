@@ -110,7 +110,7 @@ describe('Binance adapter normalizers', () => {
     ).toMatchObject({
       kind: 'regular',
       exchangeOrderId: '1001',
-      customClientOrderId: 'dca-client-1',
+      customOrderId: 'dca-client-1',
       status: 'new',
     });
 
@@ -143,7 +143,7 @@ describe('Binance adapter normalizers', () => {
       type: 'order_updated',
       order: {
         exchangeOrderId: '1001',
-        customClientOrderId: 'client-1001',
+        customOrderId: 'client-1001',
         status: 'partially_filled',
       },
     });
@@ -152,7 +152,7 @@ describe('Binance adapter normalizers', () => {
       fill: {
         exchangeTradeId: '9001',
         exchangeOrderId: '1001',
-        customClientOrderId: 'client-1001',
+        customOrderId: 'client-1001',
         quantity: '0.05',
       },
     });
@@ -258,8 +258,8 @@ describe('Binance adapter normalizers', () => {
   });
 
   it('uses caller-supplied parsers for app-specific Binance custom ids', () => {
-    const parser = createBinanceManagedOrderParser((clientId, order) => ({
-      strategyId: clientId.split('-')[0],
+    const parser = createBinanceManagedOrderParser((customId, order) => ({
+      strategyId: customId.split('-')[0],
       role: order.kind === 'algo' ? 'SL' : 'DCA',
     }));
 

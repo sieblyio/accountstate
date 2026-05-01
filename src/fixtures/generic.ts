@@ -53,12 +53,12 @@ export const defaultAccountStateFixtures = [
         [
           order({
             exchangeOrderId: '1001',
-            customClientOrderId: 'app-1001',
+            customOrderId: 'app-1001',
             owner: 'app',
           }),
           order({
             exchangeOrderId: '1002',
-            customClientOrderId: 'manual-1002',
+            customOrderId: 'manual-1002',
             owner: 'manual',
           }),
         ],
@@ -73,7 +73,7 @@ export const defaultAccountStateFixtures = [
       openOrders: [
         {
           exchangeOrderId: '1001',
-          customClientOrderId: 'app-1001',
+          customOrderId: 'app-1001',
           status: 'stale',
         },
       ],
@@ -98,10 +98,10 @@ export const defaultAccountStateFixtures = [
         type: 'local_submission_accepted',
         scope,
         intentId: 'intent-1',
-        clientId: 'client-1001',
+        customOrderId: 'client-1001',
         order: order({
           exchangeOrderId: undefined,
-          customClientOrderId: undefined,
+          customOrderId: undefined,
           source: 'local',
         }),
         acceptedAtMs: 1,
@@ -110,7 +110,7 @@ export const defaultAccountStateFixtures = [
     expect: {
       openOrders: [
         {
-          customClientOrderId: 'client-1001',
+          customOrderId: 'client-1001',
           status: 'provisional',
           source: 'local',
           acceptedAtMs: 1,
@@ -137,13 +137,13 @@ export const defaultAccountStateFixtures = [
   {
     name: 'stream-confirmation-converts-provisional-to-open',
     description:
-      'A private stream order update converges a provisional client-id order with the exchange order id.',
+      'A private stream order update converges a provisional custom-order-id order with the exchange order id.',
     initialFacts: [
       {
         type: 'local_submission_accepted',
         scope,
         intentId: 'intent-1',
-        clientId: 'client-1001',
+        customOrderId: 'client-1001',
         order: order({ exchangeOrderId: undefined, source: 'local' }),
         acceptedAtMs: 1,
       },
@@ -154,7 +154,7 @@ export const defaultAccountStateFixtures = [
         scope,
         order: order({
           exchangeOrderId: '1001',
-          customClientOrderId: 'client-1001',
+          customOrderId: 'client-1001',
           status: 'new',
           source: 'ws',
           updatedAtMs: 2,
@@ -169,7 +169,7 @@ export const defaultAccountStateFixtures = [
       openOrders: [
         {
           exchangeOrderId: '1001',
-          customClientOrderId: 'client-1001',
+          customOrderId: 'client-1001',
           status: 'new',
           source: 'ws',
         },
@@ -191,15 +191,15 @@ export const defaultAccountStateFixtures = [
     },
   },
   {
-    name: 'duplicate-custom-client-id-detected',
+    name: 'duplicate-custom-custom-order-id-detected',
     description:
-      'A duplicate accepted client id updates the existing provisional row and reports a warning.',
+      'A duplicate accepted custom order id updates the existing provisional row and reports a warning.',
     facts: [
       {
         type: 'local_submission_accepted',
         scope,
         intentId: 'intent-1',
-        clientId: 'client-1001',
+        customOrderId: 'client-1001',
         order: order({ exchangeOrderId: undefined, source: 'local' }),
         acceptedAtMs: 1,
       },
@@ -207,7 +207,7 @@ export const defaultAccountStateFixtures = [
         type: 'local_submission_accepted',
         scope,
         intentId: 'intent-2',
-        clientId: 'client-1001',
+        customOrderId: 'client-1001',
         order: order({ exchangeOrderId: undefined, source: 'local' }),
         acceptedAtMs: 2,
       },
@@ -215,7 +215,7 @@ export const defaultAccountStateFixtures = [
     expect: {
       openOrders: [
         {
-          customClientOrderId: 'client-1001',
+          customOrderId: 'client-1001',
           status: 'provisional',
           acceptedAtMs: 2,
         },
@@ -227,7 +227,7 @@ export const defaultAccountStateFixtures = [
         {
           itemsAdded: 0,
           itemsUpdated: 1,
-          warnings: [{ name: 'duplicate_active_custom_client_order_id' }],
+          warnings: [{ name: 'duplicate_active_custom_order_id' }],
         },
       ],
     },
@@ -241,7 +241,7 @@ export const defaultAccountStateFixtures = [
         type: 'local_submission_accepted',
         scope,
         intentId: 'intent-1',
-        clientId: 'client-1001',
+        customOrderId: 'client-1001',
         order: order({ exchangeOrderId: undefined, source: 'local' }),
         acceptedAtMs: 1,
       },
@@ -251,9 +251,9 @@ export const defaultAccountStateFixtures = [
         type: 'local_submission_rejected',
         scope,
         intentId: 'intent-1',
-        clientId: 'client-1001',
+        customOrderId: 'client-1001',
         error: {
-          message: 'Duplicate client order id',
+          message: 'Duplicate custom order id',
           code: -4116,
         },
         rejectedAtMs: 2,
@@ -334,7 +334,7 @@ export const defaultAccountStateFixtures = [
         type: 'terminal_evidence',
         scope,
         identity: {
-          customClientOrderId: 'client-1001',
+          customOrderId: 'client-1001',
         },
         reason: 'order_not_found',
         atMs: 3,
@@ -382,7 +382,7 @@ function order(overrides: Partial<NormalizedOrder> = {}): NormalizedOrder {
     symbol: 'BTCUSDT',
     kind: 'regular',
     exchangeOrderId: '1001',
-    customClientOrderId: 'client-1001',
+    customOrderId: 'client-1001',
     side: 'BUY',
     type: 'LIMIT',
     status: 'new',
@@ -417,7 +417,7 @@ function fill(overrides: Partial<NormalizedFill> = {}): NormalizedFill {
     symbol: 'BTCUSDT',
     exchangeTradeId: 'trade-1001',
     exchangeOrderId: '1001',
-    customClientOrderId: 'client-1001',
+    customOrderId: 'client-1001',
     side: 'BUY',
     price: '49000.00',
     quantity: '0.100',

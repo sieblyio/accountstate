@@ -38,7 +38,7 @@ function order(overrides: Partial<NormalizedOrder> = {}): NormalizedOrder {
     symbol: 'BTCUSDT',
     kind: 'regular',
     exchangeOrderId: '1001',
-    customClientOrderId: 'client-1001',
+    customOrderId: 'client-1001',
     side: 'BUY',
     type: 'LIMIT',
     status: 'new',
@@ -98,12 +98,12 @@ function violationNames(state: ExchangeAccountStateStore): string[] {
 }
 
 describe('ExchangeAccountStateStore invariants', () => {
-  it('detects duplicate active custom client order ids', () => {
+  it('detects duplicate active custom order ids', () => {
     const violations = getBuiltInInvariantViolations(
       view({
         openOrders: [
-          order({ exchangeOrderId: '1001', customClientOrderId: 'duplicate' }),
-          order({ exchangeOrderId: '1002', customClientOrderId: 'duplicate' }),
+          order({ exchangeOrderId: '1001', customOrderId: 'duplicate' }),
+          order({ exchangeOrderId: '1002', customOrderId: 'duplicate' }),
         ],
         positions: [position()],
         lifecycles: [lifecycle()],
@@ -111,16 +111,16 @@ describe('ExchangeAccountStateStore invariants', () => {
     );
 
     expect(violations.map((violation) => violation.name)).toEqual([
-      'duplicate_active_custom_client_order_id',
+      'duplicate_active_custom_order_id',
     ]);
 
     const ok = getBuiltInInvariantViolations(
       view({
         openOrders: [
-          order({ exchangeOrderId: '1001', customClientOrderId: 'duplicate' }),
+          order({ exchangeOrderId: '1001', customOrderId: 'duplicate' }),
           order({
             exchangeOrderId: '1002',
-            customClientOrderId: 'duplicate',
+            customOrderId: 'duplicate',
             status: 'cancelled',
           }),
         ],
@@ -129,7 +129,7 @@ describe('ExchangeAccountStateStore invariants', () => {
       }),
     );
     expect(ok.map((violation) => violation.name)).not.toContain(
-      'duplicate_active_custom_client_order_id',
+      'duplicate_active_custom_order_id',
     );
   });
 
@@ -170,7 +170,7 @@ describe('ExchangeAccountStateStore invariants', () => {
     state.orderAccepted({
       scope,
       intentId: 'intent-1',
-      clientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       order: order({ exchangeOrderId: undefined, source: 'local' }),
       acceptedAtMs: 1,
     });

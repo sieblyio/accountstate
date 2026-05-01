@@ -153,7 +153,7 @@ async function submitAndRecord(intent: OrderIntent): Promise<void> {
       state.orderAccepted({
         scope,
         intentId: intent.intentId,
-        clientOrderId: intent.order.customClientOrderId,
+        customOrderId: intent.order.customOrderId,
         order: intent.order,
         responseSummary: response,
       });
@@ -178,8 +178,8 @@ async function submitAndRecord(intent: OrderIntent): Promise<void> {
     state.orderRejected({
       scope,
       intentId: intent.intentId,
-      clientOrderId:
-        intent.action === 'place' ? intent.order.customClientOrderId : undefined,
+      customOrderId:
+        intent.action === 'place' ? intent.order.customOrderId : undefined,
       error: classifyBinanceSubmissionError(error),
     });
 
@@ -246,7 +246,7 @@ type OrderIntent =
       intentId: string;
       identity:
         | { exchangeOrderId: string }
-        | { customClientOrderId: string }
+        | { customOrderId: string }
         | { exchangeTriggerOrderId: string }
         | { customTriggerOrderId: string };
     };

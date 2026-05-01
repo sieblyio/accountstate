@@ -13,7 +13,7 @@ function order(overrides: Partial<NormalizedOrder> = {}): NormalizedOrder {
     ...scope,
     symbol: 'BTCUSDT',
     kind: 'regular',
-    customClientOrderId: 'client-1001',
+    customOrderId: 'client-1001',
     side: 'BUY',
     type: 'LIMIT',
     status: 'new',
@@ -35,9 +35,9 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     const changeSet = state.orderAccepted({
       scope,
       intentId: 'intent-1',
-      clientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       order: order({
-        customClientOrderId: undefined,
+        customOrderId: undefined,
         status: 'new',
         source: 'local',
       }),
@@ -54,7 +54,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     });
     expect(state.getAccountView(scope).openOrders).toEqual([
       order({
-        customClientOrderId: 'client-1001',
+        customOrderId: 'client-1001',
         status: 'provisional',
         source: 'local',
         acceptedAtMs: 1_700_000_000_100,
@@ -66,13 +66,13 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     );
   });
 
-  it('REST snapshots confirm provisional client-id orders without duplicating them', () => {
+  it('REST snapshots confirm provisional custom-order-id orders without duplicating them', () => {
     const state = new ExchangeAccountStateStore();
 
     state.orderAccepted({
       scope,
       intentId: 'intent-1',
-      clientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       order: order({ status: 'new' }),
       acceptedAtMs: 1,
     });
@@ -82,7 +82,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
       [
         order({
           exchangeOrderId: '1001',
-          customClientOrderId: 'client-1001',
+          customOrderId: 'client-1001',
           status: 'new',
           source: 'rest',
           updatedAtMs: 2,
@@ -98,7 +98,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     expect(state.getAccountView(scope).openOrders).toEqual([
       order({
         exchangeOrderId: '1001',
-        customClientOrderId: 'client-1001',
+        customOrderId: 'client-1001',
         status: 'new',
         source: 'rest',
         updatedAtMs: 2,
@@ -112,7 +112,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     state.orderAccepted({
       scope,
       intentId: 'intent-1',
-      clientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       order: order(),
       acceptedAtMs: 1,
     });
@@ -120,10 +120,10 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     const changeSet = state.orderRejected({
       scope,
       intentId: 'intent-1',
-      clientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       rejectedAtMs: 2,
       error: {
-        message: 'Duplicate client order id',
+        message: 'Duplicate custom order id',
         code: -4116,
       },
     });
@@ -180,7 +180,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     state.orderAccepted({
       scope,
       intentId: 'intent-1',
-      clientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       order: order(),
       acceptedAtMs: 1,
     });
@@ -188,7 +188,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     const changeSet = state.orderStatusUnknown({
       scope,
       intentId: 'intent-1',
-      clientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       atMs: 2,
       error: {
         message: 'Network timeout after request submission',
@@ -234,7 +234,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
       [
         order({
           exchangeOrderId: '1001',
-          customClientOrderId: 'client-1001',
+          customOrderId: 'client-1001',
           source: 'rest',
         }),
       ],
@@ -243,7 +243,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
 
     const changeSet = state.orderNotFound({
       scope,
-      identity: { customClientOrderId: 'client-1001' },
+      identity: { customOrderId: 'client-1001' },
       reason: 'order_not_found',
       atMs: 2,
     });
@@ -261,7 +261,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
 
     const changeSet = state.orderNotFound({
       scope,
-      identity: { customClientOrderId: 'missing-client-id' },
+      identity: { customOrderId: 'missing-custom-order-id' },
       reason: 'manual_operator_terminal',
       atMs: 1,
     });
@@ -275,13 +275,13 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     ]);
   });
 
-  it('duplicate accepted custom client ids produce a warning without duplicate rows', () => {
+  it('duplicate accepted custom order ids produce a warning without duplicate rows', () => {
     const state = new ExchangeAccountStateStore();
 
     state.orderAccepted({
       scope,
       intentId: 'intent-1',
-      clientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       order: order(),
       acceptedAtMs: 1,
     });
@@ -289,17 +289,17 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     const changeSet = state.orderAccepted({
       scope,
       intentId: 'intent-2',
-      clientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       order: order(),
       acceptedAtMs: 2,
     });
 
     expect(changeSet.warnings.map((warning) => warning.name)).toEqual([
-      'duplicate_active_custom_client_order_id',
+      'duplicate_active_custom_order_id',
     ]);
     expect(state.getAccountView(scope).openOrders).toHaveLength(1);
     expect(state.getAccountView(scope).openOrders[0]).toMatchObject({
-      customClientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       status: 'provisional',
       acceptedAtMs: 2,
     });
@@ -311,7 +311,7 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     state.orderStatusUnknown({
       scope,
       intentId: 'intent-1',
-      clientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       atMs: 1,
       error: {
         message: 'Unknown result',

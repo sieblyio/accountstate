@@ -38,7 +38,7 @@ function order(overrides: Partial<NormalizedOrder> = {}): NormalizedOrder {
     symbol: 'BTCUSDT',
     kind: 'regular',
     exchangeOrderId: '1001',
-    customClientOrderId: 'client-1001',
+    customOrderId: 'client-1001',
     side: 'BUY',
     type: 'LIMIT',
     status: 'new',
@@ -198,7 +198,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     account.orderAccepted({
       scope,
       intentId: 'intent-1',
-      clientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       order: acceptedOrder,
       acceptedAtMs: 1,
     });
@@ -206,7 +206,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
       type: 'local_submission_accepted',
       scope,
       intentId: 'intent-1',
-      clientId: 'client-1001',
+      customOrderId: 'client-1001',
       order: acceptedOrder,
       acceptedAtMs: 1,
     });
@@ -214,17 +214,17 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     account.orderRejected({
       scope,
       intentId: 'intent-1',
-      clientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
       rejectedAtMs: 2,
-      error: { message: 'duplicate client order id' },
+      error: { message: 'duplicate custom order id' },
     });
     reducer.ingest({
       type: 'local_submission_rejected',
       scope,
       intentId: 'intent-1',
-      clientId: 'client-1001',
+      customOrderId: 'client-1001',
       rejectedAtMs: 2,
-      error: { message: 'duplicate client order id' },
+      error: { message: 'duplicate custom order id' },
     });
 
     expect(account.getAccountView(scope)).toEqual(
@@ -242,7 +242,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
 
     const notFoundChange = state.orderNotFound({
       scope,
-      identity: { customClientOrderId: 'client-1001' },
+      identity: { customOrderId: 'client-1001' },
       atMs: 2,
     });
 
@@ -361,13 +361,13 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     const ethOrder = order({
       symbol: 'ETHUSDT',
       exchangeOrderId: '1002',
-      customClientOrderId: 'client-1002',
+      customOrderId: 'client-1002',
       status: 'partially_filled',
     });
     const btcFill = fill({
       symbol: 'BTCUSDT',
       exchangeTradeId: 'trade-1001',
-      customClientOrderId: 'client-1001',
+      customOrderId: 'client-1001',
     });
 
     state.syncPositions(scope, [longPosition, shortPosition], { asOfMs: 1 });
@@ -393,12 +393,12 @@ describe('ExchangeAccountStateStore exchange account API', () => {
       ethOrder,
     ]);
     expect(
-      state.getOrder(scope, { customClientOrderId: 'client-1001' }),
+      state.getOrder(scope, { customOrderId: 'client-1001' }),
     ).toEqual(order());
     expect(state.getBalances(scope)).toEqual([balance()]);
     expect(state.getBalance(scope, 'USDT')).toEqual(balance());
     expect(
-      state.getFills(scope, { customClientOrderId: 'client-1001' }),
+      state.getFills(scope, { customOrderId: 'client-1001' }),
     ).toEqual([btcFill]);
   });
 

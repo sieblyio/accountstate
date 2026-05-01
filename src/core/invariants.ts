@@ -61,7 +61,7 @@ export function getBuiltInInvariantViolations(
   };
 
   return [
-    ...findDuplicateActiveCustomClientOrderIds(view),
+    ...findDuplicateActiveCustomOrderIds(view),
     ...findAppOrdersWithoutLifecycle(view),
     ...findActiveLifecyclesWithoutPosition(view),
     ...findStaleProvisionalOrders(view, context),
@@ -88,30 +88,30 @@ export function runCustomInvariants(
   );
 }
 
-function findDuplicateActiveCustomClientOrderIds(
+function findDuplicateActiveCustomOrderIds(
   view: AccountView,
 ): InvariantViolation[] {
-  const ordersByClientId = new Map<string, NormalizedOrder[]>();
+  const ordersByCustomId = new Map<string, NormalizedOrder[]>();
   for (const order of view.openOrders) {
-    if (!order.customClientOrderId || !isActiveOrder(order)) {
+    if (!order.customOrderId || !isActiveOrder(order)) {
       continue;
     }
 
-    const existing = ordersByClientId.get(order.customClientOrderId) ?? [];
+    const existing = ordersByCustomId.get(order.customOrderId) ?? [];
     existing.push(order);
-    ordersByClientId.set(order.customClientOrderId, existing);
+    ordersByCustomId.set(order.customOrderId, existing);
   }
 
-  return Array.from(ordersByClientId.entries())
+  return Array.from(ordersByCustomId.entries())
     .filter(([, orders]) => orders.length > 1)
-    .map(([customClientOrderId, orders]) => ({
-      name: 'duplicate_active_custom_client_order_id',
+    .map(([customOrderId, orders]) => ({
+      name: 'duplicate_active_custom_order_id',
       severity: 'error',
       scope: view.scope,
       message:
-        'Multiple active open orders share the same custom client order id.',
+        'Multiple active open orders share the same custom order id.',
       context: {
-        customClientOrderId,
+        customOrderId,
         orderCount: orders.length,
         exchangeOrderIds: orders.map((order) => order.exchangeOrderId),
       },
@@ -134,7 +134,7 @@ function findAppOrdersWithoutLifecycle(
         symbol: order.symbol,
         exchangePositionSide: order.exchangePositionSide,
         strategySide: order.strategySide,
-        customClientOrderId: order.customClientOrderId,
+        customOrderId: order.customOrderId,
         lifecycleEpoch: order.metadata?.lifecycleEpoch,
       },
     }));
@@ -188,7 +188,7 @@ function findStaleProvisionalOrders(
       message:
         'Provisional order has exceeded the configured confirmation grace period.',
       context: {
-        customClientOrderId: order.customClientOrderId,
+        customOrderId: order.customOrderId,
         acceptedAtMs: order.acceptedAtMs,
         updatedAtMs: order.updatedAtMs,
         nowMs: context.nowMs,

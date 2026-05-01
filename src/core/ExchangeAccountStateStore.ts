@@ -104,7 +104,7 @@ import { copyScope, createScopeKey, isSameScope } from './utils.js';
 export interface ExchangeAccountStateStoreOptions extends InvariantRuntimeOptions {
   /**
    * Parsers that extract project-owned order metadata from normalized orders,
-   * usually from custom client order ids.
+   * usually from custom order ids.
    */
   managedOrderParsers?: ManagedOrderParser[];
   /**
@@ -171,7 +171,7 @@ export class ExchangeAccountStateStore {
 
   /**
    * Register a parser that can read project-owned order metadata from normalized
-   * order rows, usually from client order ids.
+   * order rows, usually from custom order ids.
    */
   registerManagedOrderParser(parser: ManagedOrderParser): this {
     this.#managedOrderParsers.push(parser);
@@ -724,7 +724,7 @@ export class ExchangeAccountStateStore {
    * client before stream or REST confirmation has arrived.
    *
    * The order is kept visible as `provisional`, keyed by whatever identity is
-   * available, so a planner cannot accidentally submit the same client id twice
+   * available, so a planner cannot accidentally submit the same custom order id twice
    * during the confirmation window.
    */
   #applyLocalSubmissionAccepted(input: LocalSubmissionAcceptedFact): ChangeSet {
@@ -750,7 +750,7 @@ export class ExchangeAccountStateStore {
       state.openOrders,
       provisionalOrder,
     );
-    const duplicate = findDuplicateActiveClientOrder(
+    const duplicate = findDuplicateActiveCustomOrder(
       state.openOrders,
       provisionalOrder,
       existingKey,
@@ -761,16 +761,16 @@ export class ExchangeAccountStateStore {
     if (
       duplicate ||
       (existing &&
-        existing.customClientOrderId === provisionalOrder.customClientOrderId &&
+        existing.customOrderId === provisionalOrder.customOrderId &&
         isActiveOrProvisionalOrder(existing))
     ) {
       changeSet.warnings.push({
-        name: 'duplicate_active_custom_client_order_id',
+        name: 'duplicate_active_custom_order_id',
         scope: input.scope,
         message:
-          'Accepted local submission shares a custom client order id with another active order.',
+          'Accepted local submission shares a custom order id with another active order.',
         context: {
-          customClientOrderId: provisionalOrder.customClientOrderId,
+          customOrderId: provisionalOrder.customOrderId,
           duplicate,
         },
       });
@@ -825,7 +825,7 @@ export class ExchangeAccountStateStore {
     const state = this.#getOrCreateScopeState(input.scope);
     const changeSet = createEmptyChangeSet(input.scope);
     const confidenceBefore = state.confidence;
-    const identity = identityFromClientId(input.clientId);
+    const identity = identityFromCustomOrderId(input.customOrderId);
     const terminalRows = identity
       ? this.#removeOrderByIdentity(state.openOrders, identity)
       : 0;
@@ -840,7 +840,7 @@ export class ExchangeAccountStateStore {
       message: 'Local submission was rejected by the exchange client.',
       context: {
         intentId: input.intentId,
-        clientId: input.clientId,
+        customOrderId: input.customOrderId,
         error: input.error,
       },
     });
@@ -886,7 +886,7 @@ export class ExchangeAccountStateStore {
         'Local submission result is unknown; open orders need exchange sync.',
       context: {
         intentId: input.intentId,
-        clientId: input.clientId,
+        customOrderId: input.customOrderId,
         error: input.error,
       },
     });
@@ -1276,7 +1276,7 @@ export class ExchangeAccountStateStore {
   /**
    * Find an existing order using any shared exchange/custom identity.
    *
-   * This allows a local client-id-only order to converge with a later REST row
+   * This allows a local custom-order-id-only order to converge with a later REST row
    * that includes the exchange order id.
    */
   #findExistingOrderKey(
@@ -1459,7 +1459,7 @@ function createProvisionalOrder(
   const order = cloneOrder(input.order);
   return {
     ...order,
-    customClientOrderId: order.customClientOrderId ?? input.clientId,
+    customOrderId: order.customOrderId ?? input.customOrderId,
     status: 'provisional',
     source: 'local',
     acceptedAtMs: input.acceptedAtMs,
@@ -1468,12 +1468,12 @@ function createProvisionalOrder(
 }
 
 /**
- * Build an order identity from a local client id, if one is available.
+ * Build an order identity from a local custom order id, if one is available.
  */
-function identityFromClientId(
-  clientId: string | undefined,
+function identityFromCustomOrderId(
+  customOrderId: string | undefined,
 ): OrderIdentity | undefined {
-  return clientId ? { customClientOrderId: clientId } : undefined;
+  return customOrderId ? { customOrderId } : undefined;
 }
 
 /**
@@ -1509,14 +1509,14 @@ function clearSyncRequestsForSubject(
 }
 
 /**
- * Locate another active order with the same custom client id.
+ * Locate another active order with the same custom order id.
  */
-function findDuplicateActiveClientOrder(
+function findDuplicateActiveCustomOrder(
   collection: Map<string, NormalizedOrder>,
   candidate: NormalizedOrder,
   candidateExistingKey: string | undefined,
 ): NormalizedOrder | undefined {
-  if (!candidate.customClientOrderId) {
+  if (!candidate.customOrderId) {
     return undefined;
   }
 
@@ -1525,7 +1525,7 @@ function findDuplicateActiveClientOrder(
       continue;
     }
     if (
-      existing.customClientOrderId === candidate.customClientOrderId &&
+      existing.customOrderId === candidate.customOrderId &&
       isActiveOrProvisionalOrder(existing)
     ) {
       return cloneOrder(existing);
@@ -1536,7 +1536,7 @@ function findDuplicateActiveClientOrder(
 }
 
 /**
- * Return true for order states that should block reusing a custom client id.
+ * Return true for order states that should block reusing a custom order id.
  */
 function isActiveOrProvisionalOrder(order: NormalizedOrder): boolean {
   return (
@@ -1631,7 +1631,7 @@ function openOrderMatchesFilter(
     matchesOptional(order.status, filter.status) &&
     matchesOptional(order.owner, filter.owner) &&
     matchesOptional(order.exchangeOrderId, filter.exchangeOrderId) &&
-    matchesOptional(order.customClientOrderId, filter.customClientOrderId) &&
+    matchesOptional(order.customOrderId, filter.customOrderId) &&
     matchesOptional(order.customTriggerOrderId, filter.customTriggerOrderId) &&
     matchesOptional(order.exchangeTriggerOrderId, filter.exchangeTriggerOrderId)
   );
@@ -1645,7 +1645,7 @@ function fillMatchesFilter(fill: NormalizedFill, filter: FillFilter): boolean {
     matchesOptional(fill.symbol, filter.symbol) &&
     matchesOptional(fill.exchangeTradeId, filter.exchangeTradeId) &&
     matchesOptional(fill.exchangeOrderId, filter.exchangeOrderId) &&
-    matchesOptional(fill.customClientOrderId, filter.customClientOrderId) &&
+    matchesOptional(fill.customOrderId, filter.customOrderId) &&
     matchesOptional(fill.customTriggerOrderId, filter.customTriggerOrderId)
   );
 }
