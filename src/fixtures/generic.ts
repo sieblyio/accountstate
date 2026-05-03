@@ -37,7 +37,6 @@ export const defaultAccountStateFixtures = [
       changeSets: [
         {
           itemsRemoved: 1,
-          lifecycleChanges: [{ change: 'settled' }],
         },
       ],
     },
@@ -348,11 +347,9 @@ export const defaultAccountStateFixtures = [
       changeSets: [
         {
           itemsRemoved: 1,
-          lifecycleChanges: [{ change: 'cleanup_pending' }],
         },
         {
           itemsRemoved: 1,
-          lifecycleChanges: [{ change: 'settled' }],
         },
       ],
     },

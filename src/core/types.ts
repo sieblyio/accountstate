@@ -37,8 +37,6 @@ export interface ManagedOrderMetadata {
   strategyId: string;
   role: 'DCA' | 'TP' | 'SL' | 'TRAIL' | string;
   step?: number;
-  lifecycleEpoch?: string;
-  replacementGeneration?: number;
   exchangePositionSide?: string;
   strategySide?: OrderStrategySide;
 }
@@ -151,7 +149,6 @@ export interface PositionLifecycle extends AccountScope {
   exchangePositionSide: string;
   strategySide: OrderStrategySide;
   lifecycleEpoch: string;
-  replacementGeneration: number;
   openedAtMs?: TimestampMs;
   lastQuantity?: DecimalString;
   lastAverageEntry?: DecimalString;
@@ -235,16 +232,6 @@ export interface SnapshotInput<T> {
   provenance?: Provenance;
 }
 
-export interface LifecycleChange {
-  lifecycle: PositionLifecycle;
-  change:
-    | 'created'
-    | 'updated'
-    | 'generation_advanced'
-    | 'cleanup_pending'
-    | 'settled';
-}
-
 export interface StateWarning {
   name: string;
   scope: AccountScope;
@@ -263,12 +250,13 @@ export interface InvariantViolation {
 export interface ChangeSet {
   scope: AccountScope;
   /**
-   * True when the operation changed state, confidence, lifecycle, or warnings.
+   * True when the operation changed account state, readiness/confidence, or
+   * warnings.
    */
   changed: boolean;
   /**
-   * Account subjects affected by this operation. Use this for scheduling
-   * planner or projection work without inspecting reducer internals.
+   * Normal account subjects affected by this operation. Use this for
+   * application scheduling or projections without inspecting reducer internals.
    */
   changedSubjects: AccountChangeSubject[];
   /**
@@ -292,7 +280,6 @@ export interface ChangeSet {
    * True when the account confidence/readiness changed.
    */
   confidenceChanged: boolean;
-  lifecycleChanges: LifecycleChange[];
   warnings: StateWarning[];
 }
 
@@ -305,7 +292,6 @@ export type StateCheckSubject =
 
 export type AccountChangeSubject =
   | StateCheckSubject
-  | 'lifecycles'
   | 'stateChecks';
 
 export type StateCheckReason =

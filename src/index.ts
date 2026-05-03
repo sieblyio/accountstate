@@ -14,7 +14,6 @@ export type {
   DecimalString,
   ExchangeId,
   InvariantViolation,
-  LifecycleChange,
   ManagedOrderMetadata,
   NormalizedBalance,
   NormalizedFill,
@@ -26,7 +25,6 @@ export type {
   OrderIdentityFilter,
   OrderOwner,
   OrderStrategySide,
-  PositionLifecycle,
   ProductId,
   SnapshotCoverage,
   SnapshotMode,
@@ -63,8 +61,6 @@ export type {
   StateInvariant,
   StateInvariantResult,
 } from './core/plugins.js';
-
-export type { LifecycleFilter, LifecycleIdentity } from './core/lifecycle.js';
 
 export type {
   CheckInvariantsOptions,

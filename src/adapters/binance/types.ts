@@ -33,11 +33,15 @@ export type BinanceUsdmAccountTradeRow = ArrayItem<
   AwaitedReturn<USDMClient['getAccountTrades']>
 >;
 
+export type BinanceUsdmAccountAssetRow = ArrayItem<
+  AwaitedReturn<USDMClient['getAccountInformationV3']>['assets']
+>;
+
 export type BinanceSpotOpenOrderRow = ArrayItem<
   AwaitedReturn<MainClient['getOpenOrders']>
 >;
 
-export type BinanceUsdmUserDataEvent = WsMessageFuturesUserDataEventFormatted;
+export type BinanceUsdmPrivateEvent = WsMessageFuturesUserDataEventFormatted;
 
 export type BinanceUsdmAccountUpdateEvent =
   WsMessageFuturesUserDataAccountUpdateFormatted;

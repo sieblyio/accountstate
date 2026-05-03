@@ -2,7 +2,7 @@
 
 `ExchangeAccountStateStore` is the recommended API for new exchange
 integrations. It is an in-memory account state store for applications that
-already talk to exchange REST APIs and private account-data WebSocket streams.
+already talk to exchange REST APIs and private WebSocket account streams.
 
 The store does not create clients, read API keys, reconnect sockets, retry REST
 calls, or schedule background work. Your app owns those concerns. The store owns
@@ -94,10 +94,10 @@ state.setOpenOrders(scope, btcOrders, {
 That prevents a symbol-specific regular-order response from deleting Algo,
 conditional, or unrelated-symbol orders.
 
-## Private Account-Data Updates
+## Private WebSocket Updates
 
 Use `apply*` methods for individual account changes received from private
-account-data WebSocket streams:
+WebSocket account streams:
 
 ```typescript
 state.applyOrderUpdate(scope, order);
@@ -106,12 +106,12 @@ state.applyBalanceUpdate(scope, balance);
 state.applyFill(scope, fill);
 ```
 
-When the private account-data WebSocket stream reconnects or has a known gap,
+When the private WebSocket stream reconnects or has a known gap,
 tell the store:
 
 ```typescript
 state.recordStreamReconnected(scope, {
-  reason: 'account-data WebSocket stream reconnected',
+  reason: 'private WebSocket stream reconnected',
 });
 state.recordStreamGap(scope, { reason: 'missed sequence' });
 ```
@@ -208,12 +208,11 @@ The counters are deliberately broad account-state words:
 - `openOrders`
 - `balances`
 - `fills`
-- `lifecycles`
 - `stateChecks`
 
-`positions`, `openOrders`, and `lifecycles` are usually the subjects that
-trigger trading logic. `stateChecks` covers readiness, confidence, watermark,
-and state-check changes.
+`positions` and `openOrders` are usually the subjects that trigger trading
+logic. `stateChecks` covers readiness, confidence, watermark, and state-check
+changes.
 
 ## Advanced APIs
 

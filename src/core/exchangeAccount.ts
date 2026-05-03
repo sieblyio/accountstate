@@ -20,7 +20,6 @@ import type {
   OrderIdentity,
   OrderIdentityFilter,
   OrderOwner,
-  PositionLifecycle,
   Provenance,
   SnapshotCoverage,
   SnapshotInput,
@@ -257,7 +256,6 @@ export interface ExchangeAccount {
   openOrders: NormalizedOrder[];
   balances: NormalizedBalance[];
   fills: NormalizedFill[];
-  lifecycles: PositionLifecycle[];
   readyToTrade: boolean;
   canTrustPositions: boolean;
   canTrustOpenOrders: boolean;
@@ -453,7 +451,6 @@ export function createExchangeAccount(
     openOrders: view.openOrders,
     balances: view.balances,
     fills: view.fills,
-    lifecycles: view.lifecycles,
     readyToTrade,
     canTrustPositions,
     canTrustOpenOrders,
@@ -481,7 +478,6 @@ export function createUnsupportedFactChangeSet(
     itemsRemoved: 0,
     itemsMarkedStale: 0,
     confidenceChanged: false,
-    lifecycleChanges: [],
     warnings: [
       {
         name: 'unsupported_account_fact',

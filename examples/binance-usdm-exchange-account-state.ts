@@ -6,12 +6,12 @@ import {
   type AccountScope,
   type ExchangeAccount,
   type NormalizedOrder,
-} from '../src/index.js';
+} from 'accountstate';
 import {
   binance,
   classifyBinanceSubmissionError,
   isBinanceUnknownOrderError,
-} from '../src/adapters/binance/index.js';
+} from 'accountstate/binance';
 
 const key = process.env.BINANCE_API_KEY || '';
 const secret = process.env.BINANCE_API_SECRET || '';
@@ -35,7 +35,6 @@ const scope: AccountScope = {
 const usdm = new USDMClient({
   api_key: key,
   api_secret: secret,
-  beautifyResponses: true,
 });
 
 const state = new ExchangeAccountStateStore();
@@ -47,6 +46,8 @@ const ws = new WebsocketClient(
   {
     api_key: key,
     api_secret: secret,
+    // Raw events still emit on "message"; formatted events emit on
+    // "formattedMessage" and are accepted by binance.ws.privateEvent().
     beautify: true,
   },
   logger,
@@ -59,6 +60,12 @@ async function refreshFromRest(reason: string): Promise<void> {
   state.ingest(binance.rest.openOrders(scope, await usdm.getAllOpenOrders()));
   state.ingest(
     binance.rest.openAlgoOrders(scope, await usdm.getOpenAlgoOrders()),
+  );
+  state.ingest(
+    binance.rest.accountBalances(
+      scope,
+      (await usdm.getAccountInformationV3()).assets,
+    ),
   );
 
   logProjection(reason, state.getAccount(scope));
@@ -80,22 +87,30 @@ async function checkStateFromRest(): Promise<void> {
       binance.rest.openAlgoOrders(scope, await usdm.getOpenAlgoOrders()),
     );
   }
+
+  if (subjects.has('balances')) {
+    state.ingest(
+      binance.rest.accountBalances(
+        scope,
+        (await usdm.getAccountInformationV3()).assets,
+      ),
+    );
+  }
 }
 
-function onAccountDataEvent(event: unknown): void {
-  const changes = state.ingest(binance.ws.userDataEvent(scope, event as never));
+function onPrivateWebSocketEvent(event: unknown): void {
+  const changes = state.ingest(binance.ws.privateEvent(scope, event as never));
   const changeSets = Array.isArray(changes) ? changes : [changes];
   const shouldPlan = changeSets.some((change) =>
     change.changedSubjects.some(
       (subject) =>
         subject === 'positions' ||
-        subject === 'openOrders' ||
-        subject === 'lifecycles',
+        subject === 'openOrders',
     ),
   );
 
   if (shouldPlan) {
-    schedulePlannerPass('account_data');
+    schedulePlannerPass('private_ws');
   }
 }
 
@@ -193,7 +208,6 @@ function logProjection(reason: string, account: ExchangeAccount): void {
     product: account.scope.product,
     positions: account.positions.length,
     openOrders: account.openOrders.length,
-    lifecycles: account.lifecycles.length,
     readyToTrade: account.readyToTrade,
     stateChecks: account.stateChecks.map((check) => ({
       subject: check.subject,
@@ -208,18 +222,18 @@ async function main(): Promise<void> {
   await plannerPass('startup');
 
   ws.on('formattedMessage', (event) => {
-    onAccountDataEvent(event);
+    onPrivateWebSocketEvent(event);
   });
 
   ws.on('reconnecting', () => {
     state.recordStreamDisconnected(scope, {
-      reason: 'Binance account-data WebSocket stream reconnecting',
+      reason: 'Binance private WebSocket stream reconnecting',
     });
   });
 
   ws.on('reconnected', async (data) => {
     state.recordStreamReconnected(scope, {
-      reason: 'Binance account-data WebSocket stream reconnected',
+      reason: 'Binance private WebSocket stream reconnected',
     });
 
     if (data?.wsKey && String(data.wsKey).includes('userData')) {

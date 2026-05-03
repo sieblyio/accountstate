@@ -10,9 +10,9 @@
 [1]: https://www.npmjs.com/package/accountstate
 
 A TypeScript in-memory account state store for crypto exchange applications.
-Feed it the REST snapshots and private account-data WebSocket events your app
-already receives, then query one current account view for positions, open
-orders, balances, fills, readiness, and state checks.
+Feed it the REST snapshots and private WebSocket account events your app already
+receives, then query one current account view for positions, open orders,
+balances, fills, readiness, and state checks.
 
 ## Table of Contents
 
@@ -45,8 +45,8 @@ into it:
 - **Exchange adapter payloads** through subpaths such as `accountstate/binance`
   and `accountstate/bybit`, so raw REST responses and private WebSocket events
   can be passed into the store.
-- **Advanced strategy metadata** such as lifecycle epochs and managed-order
-  metadata when your app needs them.
+- **Advanced ownership metadata** when your app registers a parser for its own
+  custom order IDs.
 
 The store is intentionally exchange-client agnostic. You can map exchange data
 yourself, or use an exchange-specific adapter to pass raw REST responses and
@@ -77,7 +77,7 @@ npm install accountstate bybit-api
 Most exchange applications already have two feeds into account state:
 
 - REST responses for the latest account snapshot.
-- Private account-data WebSocket events for live changes.
+- Private WebSocket account events for live changes.
 
 `ExchangeAccountStateStore` is designed around that shape. Your app owns the
 REST clients, WebSocket clients, API keys, reconnects, retries, and scheduling.
@@ -107,7 +107,7 @@ state.applyBalanceUpdate(scope, normalizedBalanceUpdate);
 
 // Reconnects or known stream gaps mark state that should be checked via REST.
 state.recordStreamReconnected(scope, {
-  reason: 'account-data WebSocket stream restarted',
+  reason: 'private WebSocket stream restarted',
 });
 
 const account = state.getAccount(scope); // current account view
@@ -158,8 +158,9 @@ const scope: AccountScope = {
 state.ingest(binance.rest.positions(scope, rawPositionRows));
 state.ingest(binance.rest.openOrders(scope, rawOpenOrderRows));
 state.ingest(binance.rest.openAlgoOrders(scope, rawOpenAlgoOrderRows));
+state.ingest(binance.rest.accountBalances(scope, rawAccountAssetRows));
 state.ingest(binance.rest.accountTrades(scope, rawTradeRows));
-state.ingest(binance.ws.userDataEvent(scope, rawAccountDataEvent));
+state.ingest(binance.ws.privateEvent(scope, rawPrivateWebSocketEvent));
 
 const account = state.getAccount(scope);
 ```
@@ -175,11 +176,16 @@ state.ingest(bybit.rest.walletBalances(scope, walletResponse.result.list));
 state.ingest(bybit.ws.privateEvent(scope, rawPrivateEvent));
 ```
 
-For Binance USD-M account-data WebSocket events, `binance.ws.userDataEvent()`
-handles `ACCOUNT_UPDATE` balance/position updates, `ORDER_TRADE_UPDATE`
-order/fill updates, Algo updates, and lightweight trade events. When an Algo
-order triggers, Binance emits normal order updates for the generated order; the
+For Binance USD-M private WebSocket events, `binance.ws.privateEvent()` handles
+`ACCOUNT_UPDATE` balance/position updates, `ORDER_TRADE_UPDATE` order/fill
+updates, Algo updates, and lightweight trade events. When an Algo order
+triggers, Binance emits normal order updates for the generated order; the
 adapter keeps that regular order separate from the terminal Algo row.
+
+Adapters also expose `ws.summarizePrivateEvent(event)` when you want a small
+pure summary for logging or event coalescing before ingesting the event. It
+returns affected subjects, symbols, assets, and order IDs, but it does not
+schedule work or make recovery decisions.
 
 Adapters are pure: they do not create REST clients, WebSocket clients, timers,
 retries, API keys, or stream sessions. They only accept objects you already
@@ -188,8 +194,9 @@ Submission outcome helpers follow the same rule: they translate responses or
 errors your app already received, but never submit, cancel, retry, or call the
 exchange.
 
-REST balance responses are exchange-specific. If an adapter does not expose a
-helper for the balance endpoint you use, map the response into
+REST balance responses are exchange-specific. Binance USD-M and Bybit V5 linear
+have adapter helpers for their common account balance responses. If an adapter
+does not expose a helper for the balance endpoint you use, map the response into
 `NormalizedBalance[]` and call `setBalances()`.
 
 ## Core Concepts
@@ -211,7 +218,7 @@ Method names follow the data flow: `set*` writes a current snapshot, `apply*`
 applies a WebSocket update already received by your app, `record*` records an
 observed fact or outcome, and `get*` reads the store.
 
-If your custom order IDs encode strategy ownership metadata, register a small
+If your custom order IDs include strategy ownership metadata, register a small
 parser once:
 
 ```typescript
@@ -223,16 +230,10 @@ state.registerManagedOrderParser({
 });
 ```
 
-Lifecycles are tracked automatically from normalized positions. Strategy-owned
-order managers can use them for stable lifecycle epochs and replacement
-generations without driving a separate state machine:
-
-```typescript
-const lifecycle = state.getLifecycle(scope, {
-  symbol: 'BTCUSDT',
-  exchangePositionSide: 'BOTH',
-});
-```
+For simple in-memory managers, keep exchange-visible custom order IDs as app
+ownership and slot tags only. Do not encode lifecycle or replacement state into
+those IDs unless your application also persists that strategy state and has
+restart tests proving that adoption path.
 
 ## Advanced Usage
 
@@ -338,7 +339,7 @@ Bybit integrations.
 The modern exchange-account examples demonstrate:
 
 - Loading current account state from REST.
-- Applying private account-data events from WebSocket streams.
+- Applying private WebSocket account events.
 - Recording reconnects and checking stale state through REST.
 - Querying one current account view for planner/UI decisions.
 - Showing where observed submit/cancel outcomes enter the store.

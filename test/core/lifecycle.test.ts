@@ -51,45 +51,45 @@ function order(overrides: Partial<NormalizedOrder> = {}): NormalizedOrder {
   };
 }
 
-describe('ExchangeAccountStateStore lifecycle and ownership', () => {
+function getLifecycles(state: ExchangeAccountStateStore) {
+  return state.getAccountView(scope).lifecycles;
+}
+
+function getOnlyLifecycle(state: ExchangeAccountStateStore) {
+  const lifecycles = getLifecycles(state);
+  expect(lifecycles).toHaveLength(1);
+  return lifecycles[0];
+}
+
+describe('ExchangeAccountStateStore internal lifecycle diagnostics', () => {
   it('creates a lifecycle for an open position and preserves its epoch', () => {
     const state = new ExchangeAccountStateStore();
 
-    const created = state.setPositions(scope, [position()], { asOfMs: 1 });
-    const lifecycle = state.getLifecycle(scope, { symbol: 'BTCUSDT' });
+    state.setPositions(scope, [position()], { asOfMs: 1 });
+    const lifecycle = getOnlyLifecycle(state);
 
-    expect(created.lifecycleChanges.map((change) => change.change)).toEqual([
-      'created',
-    ]);
     expect(lifecycle).toMatchObject({
       symbol: 'BTCUSDT',
       exchangePositionSide: 'BOTH',
       strategySide: 'LONG',
       lifecycleEpoch: 'BTCUSDT:BOTH:LONG:1',
-      replacementGeneration: 0,
       status: 'open',
     });
 
-    const unchanged = state.setPositions(
-      scope,
-      [position({ updatedAtMs: 2 })],
-      { asOfMs: 2 },
-    );
+    state.setPositions(scope, [position({ updatedAtMs: 2 })], { asOfMs: 2 });
 
-    expect(unchanged.lifecycleChanges).toEqual([]);
-    expect(state.getLifecycle(scope, { symbol: 'BTCUSDT' })).toMatchObject({
+    expect(getOnlyLifecycle(state)).toMatchObject({
       lifecycleEpoch: lifecycle?.lifecycleEpoch,
-      replacementGeneration: 0,
       status: 'open',
     });
   });
 
-  it('advances replacement generation once when the same position changes', () => {
+  it('updates internal lifecycle diagnostics when the same position changes', () => {
     const state = new ExchangeAccountStateStore();
 
     state.setPositions(scope, [position()], { asOfMs: 1 });
 
-    const changed = state.setPositions(
+    state.setPositions(
       scope,
       [
         position({
@@ -102,19 +102,13 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
       { asOfMs: 2 },
     );
 
-    expect(changed.lifecycleChanges).toEqual([
-      {
-        change: 'generation_advanced',
-        lifecycle: expect.objectContaining({
-          lifecycleEpoch: 'BTCUSDT:BOTH:LONG:1',
-          replacementGeneration: 1,
-          lastQuantity: '0.200',
-          lastAverageEntry: '51000.00',
-        }),
-      },
-    ]);
+    expect(getOnlyLifecycle(state)).toMatchObject({
+      lifecycleEpoch: 'BTCUSDT:BOTH:LONG:1',
+      lastQuantity: '0.200',
+      lastAverageEntry: '51000.00',
+    });
 
-    const repeated = state.setPositions(
+    state.setPositions(
       scope,
       [
         position({
@@ -127,9 +121,9 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
       { asOfMs: 2 },
     );
 
-    expect(repeated.lifecycleChanges).toEqual([]);
-    expect(state.getLifecycle(scope, { symbol: 'BTCUSDT' })).toMatchObject({
-      replacementGeneration: 1,
+    expect(getOnlyLifecycle(state)).toMatchObject({
+      lastQuantity: '0.200',
+      lastAverageEntry: '51000.00',
     });
   });
 
@@ -139,21 +133,13 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
     state.setPositions(scope, [position()], { asOfMs: 1 });
     state.setOpenOrders(scope, [order()], { asOfMs: 1 });
 
-    const closed = state.setPositions(scope, [], {
+    state.setPositions(scope, [], {
       mode: 'replace-scope',
       asOfMs: 2,
     });
 
-    expect(closed.lifecycleChanges).toEqual([
-      {
-        change: 'cleanup_pending',
-        lifecycle: expect.objectContaining({
-          lifecycleEpoch: 'BTCUSDT:BOTH:LONG:1',
-          status: 'cleanup_pending',
-        }),
-      },
-    ]);
-    expect(state.getLifecycle(scope, { symbol: 'BTCUSDT' })).toMatchObject({
+    expect(getOnlyLifecycle(state)).toMatchObject({
+      lifecycleEpoch: 'BTCUSDT:BOTH:LONG:1',
       status: 'cleanup_pending',
     });
   });
@@ -165,59 +151,30 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
     state.setOpenOrders(scope, [order()], { asOfMs: 1 });
     state.setPositions(scope, [], { mode: 'replace-scope', asOfMs: 2 });
 
-    const terminal = state.recordOrderNotFound({
+    state.recordOrderNotFound({
       scope,
       identity: { customOrderId: 'client-1001' },
       atMs: 3,
     });
 
-    expect(terminal.lifecycleChanges).toEqual([
-      {
-        change: 'settled',
-        lifecycle: expect.objectContaining({
-          lifecycleEpoch: 'BTCUSDT:BOTH:LONG:1',
-          status: 'settled',
-        }),
-      },
-    ]);
-    expect(state.getLifecycles(scope)).toEqual([]);
+    expect(getLifecycles(state)).toEqual([]);
   });
 
   it('creates a new epoch for a fresh same-symbol same-side position', () => {
     const state = new ExchangeAccountStateStore();
 
     state.setPositions(scope, [position()], { asOfMs: 1 });
-    const closed = state.setPositions(scope, [], {
+    state.setPositions(scope, [], {
       mode: 'replace-scope',
       asOfMs: 2,
     });
-    const reopened = state.setPositions(
-      scope,
-      [position({ updatedAtMs: 10 })],
-      { asOfMs: 10 },
-    );
+    state.setPositions(scope, [position({ updatedAtMs: 10 })], {
+      asOfMs: 10,
+    });
 
-    expect(closed.lifecycleChanges).toEqual([
-      {
-        change: 'settled',
-        lifecycle: expect.objectContaining({
-          lifecycleEpoch: 'BTCUSDT:BOTH:LONG:1',
-          status: 'settled',
-        }),
-      },
-    ]);
-    expect(reopened.lifecycleChanges).toEqual([
-      {
-        change: 'created',
-        lifecycle: expect.objectContaining({
-          lifecycleEpoch: 'BTCUSDT:BOTH:LONG:10',
-          replacementGeneration: 0,
-          status: 'open',
-        }),
-      },
-    ]);
-    expect(state.getLifecycle(scope, { symbol: 'BTCUSDT' })).toMatchObject({
+    expect(getOnlyLifecycle(state)).toMatchObject({
       lifecycleEpoch: 'BTCUSDT:BOTH:LONG:10',
+      status: 'open',
     });
   });
 
@@ -227,7 +184,6 @@ describe('ExchangeAccountStateStore lifecycle and ownership', () => {
       strategyId: 'strategy-1',
       role: 'TP',
       step: 1,
-      lifecycleEpoch: 'BTCUSDT:BOTH:LONG:1',
       exchangePositionSide: 'BOTH',
       strategySide: 'LONG',
     };

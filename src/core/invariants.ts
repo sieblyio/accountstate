@@ -135,7 +135,6 @@ function findAppOrdersWithoutLifecycle(
         exchangePositionSide: order.exchangePositionSide,
         strategySide: order.strategySide,
         customOrderId: order.customOrderId,
-        lifecycleEpoch: order.metadata?.lifecycleEpoch,
       },
     }));
 }
@@ -305,14 +304,6 @@ function hasKnownLifecycle(
   order: NormalizedOrder,
   lifecycles: PositionLifecycle[],
 ): boolean {
-  if (order.metadata?.lifecycleEpoch) {
-    return lifecycles.some(
-      (lifecycle) =>
-        lifecycle.lifecycleEpoch === order.metadata?.lifecycleEpoch &&
-        lifecycle.status !== 'settled',
-    );
-  }
-
   let candidates = lifecycles.filter(
     (lifecycle) =>
       lifecycle.status !== 'settled' && lifecycle.symbol === order.symbol,

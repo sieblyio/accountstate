@@ -2,15 +2,17 @@ export {
   binance,
   normalizeBinanceSpotExecutionReport,
   normalizeBinanceSpotOpenOrder,
+  normalizeBinanceUsdmAccountAsset,
   normalizeBinanceUsdmAccountTrade,
   normalizeBinanceUsdmAccountUpdate,
   normalizeBinanceUsdmAlgoUpdate,
   normalizeBinanceUsdmOpenAlgoOrder,
   normalizeBinanceUsdmOrderTradeUpdate,
   normalizeBinanceUsdmPosition,
+  normalizeBinanceUsdmPrivateEvent,
   normalizeBinanceUsdmRegularOpenOrder,
   normalizeBinanceUsdmTradeLite,
-  normalizeBinanceUsdmUserDataEvent,
+  summarizeBinanceUsdmPrivateEvent,
 } from './normalize.js';
 
 export { createBinanceManagedOrderParser } from './managedIds.js';
@@ -50,6 +52,8 @@ export {
 export type { BinanceManagedOrderIdParser } from './managedIds.js';
 
 export type {
+  BinancePrivateEventSubject,
+  BinancePrivateEventSummary,
   BinanceRestSnapshotOptions,
   BinanceStreamEventOptions,
 } from './normalize.js';
@@ -57,13 +61,14 @@ export type {
 export type {
   BinanceSpotExecutionReportEvent,
   BinanceSpotOpenOrderRow,
+  BinanceUsdmAccountAssetRow,
   BinanceUsdmAccountTradeRow,
   BinanceUsdmAccountUpdateEvent,
   BinanceUsdmAlgoUpdateEvent,
   BinanceUsdmOpenAlgoOrderRow,
   BinanceUsdmOrderTradeUpdateEvent,
   BinanceUsdmPositionRow,
+  BinanceUsdmPrivateEvent,
   BinanceUsdmRegularOpenOrderRow,
   BinanceUsdmTradeLiteEvent,
-  BinanceUsdmUserDataEvent,
 } from './types.js';

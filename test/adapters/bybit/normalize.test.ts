@@ -4,10 +4,12 @@ import {
   bybitAccountStateFixtures,
   bybitRawSamples,
   classifyBybitSubmissionError,
+  getBybitPositionIdx,
   isBybitUnknownOrderError,
   normalizeBybitV5LinearOrder,
   normalizeBybitV5LinearPosition,
   normalizeBybitV5PrivateEvent,
+  summarizeBybitV5PrivateEvent,
 } from '../../../src/adapters/bybit';
 import { runAccountStateFixtures } from '../../../src/conformance';
 import type { AccountScope } from '../../../src/core';
@@ -94,6 +96,28 @@ describe('Bybit adapter normalizers', () => {
       strategySide: 'SHORT',
       signedQuantity: '-24.2',
     });
+  });
+
+  it('returns the Bybit request positionIdx from raw or normalized rows', () => {
+    const hedgeLong = normalizeBybitV5LinearPosition(
+      positionRow(bybitRawSamples.restHedgeLongPosition),
+      scope,
+    );
+    const hedgeShortOrder = normalizeBybitV5LinearOrder(
+      orderRow({
+        ...bybitRawSamples.restConditionalStopOrder,
+        positionIdx: 2,
+      }),
+      scope,
+    );
+
+    expect(getBybitPositionIdx(hedgeLong)).toBe(1);
+    expect(getBybitPositionIdx(hedgeShortOrder)).toBe(2);
+    expect(getBybitPositionIdx({ exchangePositionSide: 'BOTH' })).toBe(0);
+    expect(getBybitPositionIdx({ raw: { positionIdx: '1' } })).toBe(1);
+    expect(
+      getBybitPositionIdx({ metadata: { exchangePositionSide: 'SHORT' } }),
+    ).toBe(2);
   });
 
   it('normalizes REST zero-size positions as terminal flat rows', () => {
@@ -237,6 +261,22 @@ describe('Bybit adapter normalizers', () => {
         }),
       }),
     ]);
+  });
+
+  it('summarizes private events without applying store changes', () => {
+    const event = privateEvent(bybitRawSamples.wsExecutionEvent);
+
+    expect(summarizeBybitV5PrivateEvent(event)).toMatchObject({
+      topic: 'execution',
+      subjects: ['fills'],
+      symbols: ['IPUSDT'],
+      exchangeOrderIds: ['9bb63134-6f73-4fb2-beee-56c089952da2'],
+      customOrderIds: ['as-omzvem5-1-ow-long'],
+      executionTypes: ['Trade'],
+    });
+    expect(bybit.ws.summarizePrivateEvent(event)).toEqual(
+      summarizeBybitV5PrivateEvent(event),
+    );
   });
 
   it('normalizes terminal private order events into terminal evidence', () => {

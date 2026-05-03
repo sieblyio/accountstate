@@ -118,7 +118,7 @@ export const binanceAccountStateFixtures = [
     description:
       'ACCOUNT_UPDATE maps Binance USD-M websocket balance and position updates.',
     facts: [
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         accountUpdateEvent(binanceRawSamples.userDataAccountUpdateOpenPosition),
       ),
@@ -169,11 +169,11 @@ export const binanceAccountStateFixtures = [
     },
   },
   {
-    name: 'binance-usdm-account-data-partial-fill-updates-order-and-fill',
+    name: 'binance-usdm-private-ws-partial-fill-updates-order-and-fill',
     description:
       'ORDER_TRADE_UPDATE PARTIALLY_FILLED updates the open order and records the fill.',
     facts: [
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         orderTradeUpdateEvent(binanceRawSamples.userDataOrderPartiallyFilled),
       ),
@@ -219,7 +219,7 @@ export const binanceAccountStateFixtures = [
       ]),
     ],
     facts: [
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         accountUpdateEvent(binanceRawSamples.userDataAccountUpdateZeroPosition),
       ),
@@ -245,13 +245,13 @@ export const binanceAccountStateFixtures = [
     description:
       'ORDER_TRADE_UPDATE FILLED terminally removes the open order and records the fill.',
     initialFacts: [
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         orderTradeUpdateEvent(binanceRawSamples.userDataOrderNew),
       ),
     ],
     facts: [
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         orderTradeUpdateEvent(binanceRawSamples.userDataOrderFilled),
       ),
@@ -279,7 +279,7 @@ export const binanceAccountStateFixtures = [
       ]),
     ],
     facts: [
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         algoUpdateEvent(binanceRawSamples.userDataAlgoExpired),
       ),
@@ -291,23 +291,23 @@ export const binanceAccountStateFixtures = [
   {
     name: 'binance-usdm-algo-triggered-leaves-regular-order-active',
     description:
-      'Triggered Algo lifecycle removes only the Algo row and leaves the generated regular order.',
+      'Triggered Algo evidence removes only the Algo row and leaves the generated regular order.',
     initialFacts: [
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         algoUpdateEvent(binanceRawSamples.userDataAlgoTriggerNew),
       ),
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         algoUpdateEvent(binanceRawSamples.userDataAlgoTriggering),
       ),
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         orderTradeUpdateEvent(binanceRawSamples.userDataAlgoTriggeredOrderNew),
       ),
     ],
     facts: [
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         algoUpdateEvent(binanceRawSamples.userDataAlgoTriggered),
       ),
@@ -332,27 +332,27 @@ export const binanceAccountStateFixtures = [
     description:
       'FINISHED Algo evidence removes the Algo row while ORDER_TRADE_UPDATE records the actual fill.',
     initialFacts: [
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         algoUpdateEvent(binanceRawSamples.userDataAlgoTriggerNew),
       ),
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         algoUpdateEvent(binanceRawSamples.userDataAlgoTriggering),
       ),
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         orderTradeUpdateEvent(binanceRawSamples.userDataAlgoTriggeredOrderNew),
       ),
     ],
     facts: [
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         orderTradeUpdateEvent(
           binanceRawSamples.userDataAlgoTriggeredOrderFilled,
         ),
       ),
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         algoUpdateEvent(binanceRawSamples.userDataAlgoFinished),
       ),
@@ -375,7 +375,7 @@ export const binanceAccountStateFixtures = [
     description:
       'Binance accepts closePosition plus quantity when a matching position exists and echoes quantity zero.',
     facts: [
-      ...binance.ws.userDataEvent(
+      ...binance.ws.privateEvent(
         scope,
         algoUpdateEvent(
           binanceRawSamples.userDataClosePositionQuantityCanonicalizedAlgoNew,

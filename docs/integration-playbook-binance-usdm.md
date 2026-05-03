@@ -4,7 +4,7 @@ This playbook shows the common Binance USD-M account-state workflow:
 
 ```text
 startup REST snapshots
-  + private account-data WebSocket events
+  + private WebSocket account events
   + local submit/cancel outcomes
   + reconnect REST refresh
   -> accountstate
@@ -23,6 +23,15 @@ npm install accountstate binance
 
 `binance` is an optional peer dependency. It is required only when importing
 `accountstate/binance`.
+
+With the Binance SDK, REST response beautification is optional for the supported
+USD-M adapter helpers. The SDK keeps those REST field names intact, but may
+parse decimal strings into JavaScript numbers. Leaving REST responses raw
+preserves exchange decimal strings exactly.
+
+WebSocket formatting is separate. With `beautify: true`, raw events are still
+emitted on `message`; formatted events are emitted on `formattedMessage`. Pass
+the formatted private WebSocket events to `binance.ws.privateEvent()`.
 
 ## Scope
 
@@ -56,6 +65,12 @@ async function refreshFromRest(reason: string) {
   state.ingest(
     binance.rest.openAlgoOrders(scope, await usdm.getOpenAlgoOrders()),
   );
+  state.ingest(
+    binance.rest.accountBalances(
+      scope,
+      (await usdm.getAccountInformationV3()).assets,
+    ),
+  );
 
   logAccountProjection(reason);
 }
@@ -67,22 +82,21 @@ Add fills when the strategy uses current fill history:
 state.ingest(binance.rest.accountTrades(scope, await usdm.getAccountTrades()));
 ```
 
-REST balance responses are exchange-specific and do not have a Binance helper
-yet. When the strategy uses REST balances, map the response into
-`NormalizedBalance[]` and pass it to `state.setBalances(scope, rows)`.
+For USD-M REST balances, pass `getAccountInformationV3().assets` to
+`binance.rest.accountBalances(scope, rows)`.
 
-## Private Account-Data Updates
+## Private WebSocket Updates
 
-During live operation, use private account-data WebSocket events for account-state
+During live operation, use private WebSocket account events for account-state
 changes:
 
 ```typescript
-function onAccountDataEvent(event: unknown) {
-  const changes = state.ingest(binance.ws.userDataEvent(scope, event as never));
+function onPrivateWebSocketEvent(event: unknown) {
+  const changes = state.ingest(binance.ws.privateEvent(scope, event as never));
 
   for (const change of Array.isArray(changes) ? changes : [changes]) {
     if (change.changed) {
-      schedulePlannerPass('account_data');
+      schedulePlannerPass('private_ws');
       break;
     }
   }
@@ -93,7 +107,12 @@ Coalesce bursts in the application. For example, order and Algo events can
 usually schedule trading logic quickly, while trade or balance-only events can
 be debounced.
 
-Do not query REST on every private account-data WebSocket event. REST is for
+If you want to coalesce by event shape before ingesting, use
+`binance.ws.summarizePrivateEvent(event)`. The summary is only data: affected
+subjects, symbols, assets, order IDs, trigger-order IDs, and exchange statuses.
+Your application still decides debounce timing and recovery policy.
+
+Do not query REST on every private WebSocket account event. REST is for
 startup, reconnect/gap recovery, operator-requested checks, and explicit
 `stateChecks`.
 
@@ -202,21 +221,21 @@ in open-order results.
 
 ## Reconnect And Gap Handling
 
-When the private account-data WebSocket stream disconnects, pause live
+When the private WebSocket stream disconnects, pause live
 submissions in your application if that is appropriate for your integration:
 
 ```typescript
 state.recordStreamDisconnected(scope, {
-  reason: 'account-data WebSocket stream disconnected',
+  reason: 'private WebSocket stream disconnected',
 });
 ```
 
-When the account-data WebSocket stream reconnects or a sequence gap is detected,
+When the private WebSocket stream reconnects or a sequence gap is detected,
 tell the store and then satisfy the resulting REST-backed state checks:
 
 ```typescript
 state.recordStreamReconnected(scope, {
-  reason: 'account-data WebSocket stream reconnected',
+  reason: 'private WebSocket stream reconnected',
 });
 await checkStateFromRest();
 ```
@@ -244,14 +263,23 @@ async function checkStateFromRest() {
         binance.rest.accountTrades(scope, await usdm.getAccountTrades()),
       );
     }
+
+    if (check.subject === 'balances') {
+      state.ingest(
+        binance.rest.accountBalances(
+          scope,
+          (await usdm.getAccountInformationV3()).assets,
+        ),
+      );
+    }
   }
 }
 ```
 
-The Binance SDK may own listen-key refresh or automatic account-data WebSocket
-reconnects. Treat that as SDK/client lifecycle. If account updates may have been
-missed, call `recordStreamReconnected()` or `recordStreamGap()` and refresh the
-checked state through REST.
+The Binance SDK may own listen-key refresh or automatic private WebSocket
+reconnects. Treat that as SDK/client connection state. If account updates may
+have been missed, call `recordStreamReconnected()` or `recordStreamGap()` and
+refresh the checked state through REST.
 
 ## Account View
 
@@ -320,7 +348,7 @@ function desiredMatchesActive(desired: NormalizedOrder, active: NormalizedOrder)
 ## Common Mistakes
 
 - Avoid legacy `AccountStateStore` for new exchange integrations.
-- Avoid REST queries on every private account-data WebSocket event.
+- Avoid REST queries on every private WebSocket account event.
 - Record accepted cancel responses immediately instead of waiting for a later
   event.
 - Do not make `balances` or `fills` block readiness unless trading logic uses
@@ -336,13 +364,13 @@ function desiredMatchesActive(desired: NormalizedOrder, active: NormalizedOrder)
 ## Minimal Live Loop
 
 ```typescript
-await connectAccountDataStream();
+await connectPrivateWebSocket();
 await refreshFromRest('startup');
 await plannerPass('startup');
 
 ws.on('formattedMessage', (event) => {
-  state.ingest(binance.ws.userDataEvent(scope, event));
-  schedulePlannerPass('account_data');
+  state.ingest(binance.ws.privateEvent(scope, event));
+  schedulePlannerPass('private_ws');
 });
 
 ws.on('reconnecting', () => {

@@ -10,16 +10,19 @@ import {
   createBinanceManagedOrderParser,
   explainBinanceManagedOrderDiff,
   isBinanceUnknownOrderError,
+  normalizeBinanceUsdmAccountAsset,
   normalizeBinanceUsdmAccountUpdate,
   normalizeBinanceUsdmOpenAlgoOrder,
   normalizeBinanceUsdmOrderTradeUpdate,
   normalizeBinanceUsdmPosition,
   normalizeBinanceUsdmRegularOpenOrder,
+  summarizeBinanceUsdmPrivateEvent,
 } from '../../../src/adapters/binance';
 import { runAccountStateFixtures } from '../../../src/conformance';
 import type { AccountScope, NormalizedOrder } from '../../../src/core';
 import type {
   BinanceUsdmAlgoUpdateEvent,
+  BinanceUsdmAccountAssetRow,
   BinanceUsdmAccountUpdateEvent,
   BinanceUsdmOpenAlgoOrderRow,
   BinanceUsdmOrderTradeUpdateEvent,
@@ -101,6 +104,40 @@ describe('Binance adapter normalizers', () => {
       exchangePositionSide: 'SHORT',
       strategySide: 'SHORT',
       quantity: '0.10',
+    });
+  });
+
+  it('accepts SDK-beautified REST numbers while keeping normalized decimals plain', () => {
+    const position = normalizeBinanceUsdmPosition(
+      usdmPosition({
+        positionAmt: 1e-8,
+        entryPrice: 0.00001234,
+        markPrice: 0.00001235,
+        unRealizedProfit: 1e-7,
+      } as unknown as Partial<BinanceUsdmPositionRow>),
+      scope,
+    );
+
+    expect(position).toMatchObject({
+      quantity: '0.00000001',
+      signedQuantity: '0.00000001',
+      averageEntry: '0.00001234',
+      markPrice: '0.00001235',
+    });
+
+    const order = normalizeBinanceUsdmRegularOpenOrder(
+      regularOrder({
+        origQty: 1e-8,
+        executedQty: 5e-9,
+        price: 0.00001234,
+      } as unknown as Partial<BinanceUsdmRegularOpenOrderRow>),
+      scope,
+    );
+
+    expect(order).toMatchObject({
+      quantity: '0.00000001',
+      executedQuantity: '0.000000005',
+      price: '0.00001234',
     });
   });
 
@@ -189,8 +226,57 @@ describe('Binance adapter normalizers', () => {
     ]);
   });
 
+  it('summarizes private events without applying store changes', () => {
+    const event = orderTradeUpdate({
+      executionType: 'TRADE',
+      orderStatus: 'PARTIALLY_FILLED',
+      lastFilledQuantity: 0.05,
+      orderFilledAccumulatedQuantity: 0.05,
+    });
+
+    expect(summarizeBinanceUsdmPrivateEvent(event)).toMatchObject({
+      eventType: 'ORDER_TRADE_UPDATE',
+      subjects: ['openOrders', 'fills'],
+      symbols: ['BTCUSDT'],
+      exchangeOrderIds: ['1001'],
+      customOrderIds: ['client-1001'],
+      exchangePositionSides: ['BOTH'],
+      orderStatuses: ['PARTIALLY_FILLED'],
+      executionTypes: ['TRADE'],
+    });
+    expect(binance.ws.summarizePrivateEvent(event)).toEqual(
+      summarizeBinanceUsdmPrivateEvent(event),
+    );
+  });
+
+  it('normalizes USD-M REST account assets into balance snapshots', () => {
+    const asset = usdmAccountAsset();
+
+    expect(normalizeBinanceUsdmAccountAsset(asset, scope)).toMatchObject({
+      asset: 'USDT',
+      walletBalance: '100.25',
+      availableBalance: '80.25',
+      unrealizedPnl: '-1.50',
+      updatedAtMs: 1_700_000_000_300,
+      source: 'rest',
+    });
+
+    expect(binance.rest.accountBalances(scope, [asset])).toMatchObject({
+      type: 'rest_snapshot',
+      subject: 'balances',
+      mode: 'replace-scope',
+      rows: [
+        expect.objectContaining({
+          asset: 'USDT',
+          walletBalance: '100.25',
+          availableBalance: '80.25',
+        }),
+      ],
+    });
+  });
+
   it('normalizes TRIGGERED ALGO_UPDATE as terminal evidence for the Algo row', () => {
-    const facts = binance.ws.userDataEvent(
+    const facts = binance.ws.privateEvent(
       scope,
       binanceRawSamples.userDataAlgoTriggered as unknown as BinanceUsdmAlgoUpdateEvent,
     );
@@ -213,7 +299,7 @@ describe('Binance adapter normalizers', () => {
   });
 
   it('normalizes terminal ALGO_UPDATE statuses into terminal evidence', () => {
-    const facts = binance.ws.userDataEvent(
+    const facts = binance.ws.privateEvent(
       scope,
       algoUpdate({ algoStatus: 'CANCELED' }),
     );
@@ -244,7 +330,7 @@ describe('Binance adapter normalizers', () => {
       ]),
     );
     state.ingest(
-      binance.ws.userDataEvent(
+      binance.ws.privateEvent(
         scope,
         orderTradeUpdate({
           executionType: 'CANCELED',
@@ -299,7 +385,7 @@ describe('Binance adapter normalizers', () => {
       ]),
     );
     state.ingest(
-      binance.ws.userDataEvent(
+      binance.ws.privateEvent(
         scope,
         accountUpdate({ positionAmount: 0, positionSide: 'BOTH' }),
       ),
@@ -463,6 +549,28 @@ function usdmPosition(
     bidNotional: '0',
     askNotional: '0',
     updateTime: 1_700_000_000_000,
+    ...overrides,
+  };
+}
+
+function usdmAccountAsset(
+  overrides: Partial<BinanceUsdmAccountAssetRow> = {},
+): BinanceUsdmAccountAssetRow {
+  return {
+    asset: 'USDT',
+    walletBalance: '100.25',
+    unrealizedProfit: '-1.50',
+    marginBalance: '98.75',
+    maintMargin: '0',
+    initialMargin: '0',
+    positionInitialMargin: '0',
+    openOrderInitialMargin: '0',
+    maxWithdrawAmount: '80.25',
+    crossWalletBalance: '100.25',
+    crossUnPnl: '-1.50',
+    availableBalance: '80.25',
+    marginAvailable: true,
+    updateTime: 1_700_000_000_300,
     ...overrides,
   };
 }

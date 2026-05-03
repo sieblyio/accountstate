@@ -28,7 +28,6 @@ export type {
   DecimalString,
   ExchangeId,
   InvariantViolation,
-  LifecycleChange,
   ManagedOrderMetadata,
   NormalizedBalance,
   NormalizedFill,
@@ -84,8 +83,6 @@ export type {
   StateInvariant,
   StateInvariantResult,
 } from './plugins.js';
-
-export type { LifecycleFilter, LifecycleIdentity } from './lifecycle.js';
 
 export type {
   CheckInvariantsOptions,

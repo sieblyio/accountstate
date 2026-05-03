@@ -7,7 +7,7 @@ create REST clients, WebSocket clients, listen keys, timers, API keys, retry
 loops, or reconnect logic.
 
 For a complete Binance USD-M account-state workflow using startup REST snapshots,
-private account-data WebSocket updates, local submission outcomes, and reconnect
+private WebSocket account updates, local submission outcomes, and reconnect
 REST refresh, see
 [Binance USD-M integration playbook](../integration-playbook-binance-usdm.md).
 
@@ -19,6 +19,15 @@ npm install accountstate binance
 
 `binance` is an optional peer dependency. You only need it when importing the
 Binance subpath. The root `accountstate` import works without Binance installed.
+
+The Binance SDK's REST `beautifyResponses` option keeps the field names used by
+the supported USD-M REST helpers, but it may parse decimal strings into
+JavaScript numbers. The adapter accepts either shape. Leaving REST responses raw
+preserves exchange decimal strings exactly.
+
+WebSocket formatting is separate. With `beautify: true`, the Binance SDK still
+emits raw events on `message` and emits formatted events on `formattedMessage`.
+Pass the formatted private WebSocket events to `binance.ws.privateEvent()`.
 
 ## Basic Flow
 
@@ -40,19 +49,25 @@ state.ingest(binance.rest.openOrders(scope, await usdm.getAllOpenOrders()));
 state.ingest(
   binance.rest.openAlgoOrders(scope, await usdm.getOpenAlgoOrders()),
 );
+state.ingest(
+  binance.rest.accountBalances(
+    scope,
+    (await usdm.getAccountInformationV3()).assets,
+  ),
+);
 
 ws.on('formattedMessage', (event) => {
-  state.ingest(binance.ws.userDataEvent(scope, event));
+  state.ingest(binance.ws.privateEvent(scope, event));
 });
 ```
 
-Your application still owns the Binance clients and account-data WebSocket
-stream lifecycle. On reconnect, call `recordStreamReconnected()` or apply a
+Your application still owns the Binance clients and private WebSocket
+connection. On reconnect, call `recordStreamReconnected()` or apply a
 fresh REST snapshot directly:
 
 ```typescript
 state.recordStreamReconnected(scope, {
-  reason: 'Binance account-data WebSocket stream restarted',
+  reason: 'Binance private WebSocket stream restarted',
 });
 
 for (const check of state.getAccount(scope).stateChecks) {
@@ -68,23 +83,29 @@ REST helpers:
 - `binance.rest.openOrders(scope, rows)`
 - `binance.rest.openAlgoOrders(scope, rows)`
 - `binance.rest.accountTrades(scope, rows)`
+- `binance.rest.accountBalances(scope, rows)`
 
-Private account-data WebSocket helpers:
+Private WebSocket helpers:
 
-- `binance.ws.userDataEvent(scope, event)`
+- `binance.ws.privateEvent(scope, event)`
+- `binance.ws.summarizePrivateEvent(event)`
 - `binance.ws.spotExecutionReport(scope, event)`
 
-`userDataEvent()` handles Binance USD-M:
+`privateEvent()` handles Binance USD-M:
 
 - `ACCOUNT_UPDATE`
 - `ORDER_TRADE_UPDATE`
 - `ALGO_UPDATE`
 - `TRADE_LITE`
 
-REST balance responses are not normalized by a Binance helper yet. If you need a
-REST balance snapshot, map the response into `NormalizedBalance[]` and call
-`state.setBalances(scope, rows)`. `ACCOUNT_UPDATE` stream events already update
-balances through `binance.ws.userDataEvent()`.
+`summarizePrivateEvent()` returns a pure summary for logging or event
+coalescing: affected subjects, symbols, assets, order IDs, trigger-order IDs,
+position sides, and exchange statuses. It does not apply state, schedule work,
+or decide whether REST recovery is needed.
+
+For USD-M REST balances, pass `getAccountInformationV3().assets` to
+`binance.rest.accountBalances(scope, rows)`. `ACCOUNT_UPDATE` stream events
+already update balances through `binance.ws.privateEvent()`.
 
 ## Order Identity
 
@@ -108,7 +129,7 @@ state.getOrder(scope, { exchangeOrderId: '1001' });
 Trigger-order identity exists so a generated regular order and its triggering
 Algo order do not collide when Binance reuses custom IDs across both objects.
 
-## Algo Trigger Lifecycle
+## Algo Trigger Behavior
 
 When a Binance USD-M Algo order triggers, Binance can emit:
 
@@ -184,5 +205,5 @@ const results = runAccountStateFixtures({
 ```
 
 These fixtures cover representative USD-M REST and WebSocket account-state
-behavior, including partial fills, Algo trigger lifecycle, close-position
+behavior, including partial fills, Algo trigger behavior, close-position
 canonicalization, and real unknown-order error payloads.

@@ -23,6 +23,7 @@ import type {
 import type {
   BinanceSpotExecutionReportEvent,
   BinanceSpotOpenOrderRow,
+  BinanceUsdmAccountAssetRow,
   BinanceUsdmAccountTradeRow,
   BinanceUsdmAccountUpdateEvent,
   BinanceUsdmAlgoUpdateEvent,
@@ -31,7 +32,7 @@ import type {
   BinanceUsdmPositionRow,
   BinanceUsdmRegularOpenOrderRow,
   BinanceUsdmTradeLiteEvent,
-  BinanceUsdmUserDataEvent,
+  BinanceUsdmPrivateEvent,
 } from './types.js';
 import { binanceSubmission } from './submission.js';
 
@@ -47,6 +48,29 @@ export interface BinanceStreamEventOptions {
   receivedAtMs?: TimestampMs;
   eventId?: string;
   sequence?: string | number;
+}
+
+export type BinancePrivateEventSubject =
+  | 'positions'
+  | 'openOrders'
+  | 'balances'
+  | 'fills';
+
+export interface BinancePrivateEventSummary {
+  eventType: BinanceUsdmPrivateEvent['eventType'] | string;
+  subjects: BinancePrivateEventSubject[];
+  symbols: string[];
+  assets: string[];
+  exchangeOrderIds: string[];
+  customOrderIds: string[];
+  exchangeTriggerOrderIds: string[];
+  customTriggerOrderIds: string[];
+  exchangePositionSides: string[];
+  orderStatuses: string[];
+  executionTypes: string[];
+  algoStatuses: string[];
+  eventTimeMs?: TimestampMs;
+  transactionTimeMs?: TimestampMs;
 }
 
 /**
@@ -171,10 +195,30 @@ export function normalizeBinanceUsdmAccountTrade(
 }
 
 /**
- * Normalize one formatted USD-M account-data event into store-ingestable facts.
+ * Normalize one USD-M account asset row from `USDMClient.getAccountInformationV3()`.
  */
-export function normalizeBinanceUsdmUserDataEvent(
-  event: BinanceUsdmUserDataEvent,
+export function normalizeBinanceUsdmAccountAsset(
+  row: BinanceUsdmAccountAssetRow,
+  scope: AccountScope,
+): NormalizedBalance {
+  return {
+    ...scope,
+    asset: row.asset,
+    walletBalance: decimal(row.walletBalance),
+    availableBalance: decimal(row.availableBalance),
+    unrealizedPnl: decimal(row.unrealizedProfit),
+    updatedAtMs: Number(row.updateTime) || 0,
+    source: 'rest',
+    raw: row,
+  };
+}
+
+/**
+ * Normalize one formatted USD-M private WebSocket event into store-ingestable
+ * facts.
+ */
+export function normalizeBinanceUsdmPrivateEvent(
+  event: BinanceUsdmPrivateEvent,
   scope: AccountScope,
   options: BinanceStreamEventOptions = {},
 ): AccountFact[] {
@@ -189,6 +233,27 @@ export function normalizeBinanceUsdmUserDataEvent(
       return normalizeBinanceUsdmTradeLite(event, scope, options);
     default:
       return [];
+  }
+}
+
+/**
+ * Summarize one formatted USD-M private WebSocket event without changing store
+ * state. Use this for logging, metrics, and application-owned coalescing.
+ */
+export function summarizeBinanceUsdmPrivateEvent(
+  event: BinanceUsdmPrivateEvent,
+): BinancePrivateEventSummary {
+  switch (event.eventType) {
+    case 'ACCOUNT_UPDATE':
+      return summarizeBinanceAccountUpdate(event);
+    case 'ORDER_TRADE_UPDATE':
+      return summarizeBinanceOrderTradeUpdate(event);
+    case 'ALGO_UPDATE':
+      return summarizeBinanceAlgoUpdate(event);
+    case 'TRADE_LITE':
+      return summarizeBinanceTradeLite(event);
+    default:
+      return createBinancePrivateEventSummary(event);
   }
 }
 
@@ -615,6 +680,19 @@ export const binance = {
         'upsert-only',
       );
     },
+    accountBalances(
+      scope: AccountScope,
+      rows: BinanceUsdmAccountAssetRow[],
+      options?: BinanceRestSnapshotOptions,
+    ) {
+      return createRestSnapshot(
+        scope,
+        'balances',
+        rows.map((row) => normalizeBinanceUsdmAccountAsset(row, scope)),
+        options,
+        'replace-scope',
+      );
+    },
     spotOpenOrders(
       scope: AccountScope,
       rows: BinanceSpotOpenOrderRow[],
@@ -630,12 +708,15 @@ export const binance = {
     },
   },
   ws: {
-    userDataEvent(
+    privateEvent(
       scope: AccountScope,
-      event: BinanceUsdmUserDataEvent,
+      event: BinanceUsdmPrivateEvent,
       options?: BinanceStreamEventOptions,
     ) {
-      return normalizeBinanceUsdmUserDataEvent(event, scope, options);
+      return normalizeBinanceUsdmPrivateEvent(event, scope, options);
+    },
+    summarizePrivateEvent(event: BinanceUsdmPrivateEvent) {
+      return summarizeBinanceUsdmPrivateEvent(event);
     },
     spotExecutionReport(
       scope: AccountScope,
@@ -647,6 +728,109 @@ export const binance = {
   },
   submission: binanceSubmission,
 } as const;
+
+function summarizeBinanceAccountUpdate(
+  event: BinanceUsdmAccountUpdateEvent,
+): BinancePrivateEventSummary {
+  return createBinancePrivateEventSummary(event, {
+    subjects: [
+      event.updateData.updatedBalances.length > 0 ? 'balances' : undefined,
+      event.updateData.updatedPositions.length > 0 ? 'positions' : undefined,
+    ],
+    symbols: event.updateData.updatedPositions.map(
+      (position) => position.symbol,
+    ),
+    assets: event.updateData.updatedBalances.map((balance) => balance.asset),
+    exchangePositionSides: event.updateData.updatedPositions.map(
+      (position) => position.positionSide,
+    ),
+  });
+}
+
+function summarizeBinanceOrderTradeUpdate(
+  event: BinanceUsdmOrderTradeUpdateEvent,
+): BinancePrivateEventSummary {
+  const order = event.order;
+  return createBinancePrivateEventSummary(event, {
+    subjects: [
+      'openOrders',
+      order.executionType === 'TRADE' && Number(order.lastFilledQuantity) > 0
+        ? 'fills'
+        : undefined,
+    ],
+    symbols: [order.symbol],
+    exchangeOrderIds: [String(order.orderId)],
+    customOrderIds: [order.clientOrderId],
+    exchangePositionSides: [order.positionSide],
+    orderStatuses: [order.orderStatus],
+    executionTypes: [order.executionType],
+  });
+}
+
+function summarizeBinanceAlgoUpdate(
+  event: BinanceUsdmAlgoUpdateEvent,
+): BinancePrivateEventSummary {
+  const order = event.algoOrder;
+  return createBinancePrivateEventSummary(event, {
+    subjects: ['openOrders'],
+    symbols: [order.symbol],
+    exchangeOrderIds: [nonZeroString(order.orderId)],
+    exchangeTriggerOrderIds: [String(order.algoId)],
+    customTriggerOrderIds: [order.clientAlgoId],
+    exchangePositionSides: [order.positionSide],
+    orderStatuses: [order.algoStatus],
+    algoStatuses: [order.algoStatus],
+  });
+}
+
+function summarizeBinanceTradeLite(
+  event: BinanceUsdmTradeLiteEvent,
+): BinancePrivateEventSummary {
+  return createBinancePrivateEventSummary(event, {
+    subjects: ['fills'],
+    symbols: [event.symbol],
+    exchangeOrderIds: [String(event.orderId)],
+    customOrderIds: [event.clientOrderId],
+  });
+}
+
+function createBinancePrivateEventSummary(
+  event: BinanceUsdmPrivateEvent,
+  overrides: BinancePrivateEventSummaryInput = {},
+): BinancePrivateEventSummary {
+  return {
+    eventType: event.eventType,
+    subjects: uniqueStrings(overrides.subjects ?? []),
+    symbols: uniqueStrings(overrides.symbols ?? []),
+    assets: uniqueStrings(overrides.assets ?? []),
+    exchangeOrderIds: uniqueStrings(overrides.exchangeOrderIds ?? []),
+    customOrderIds: uniqueStrings(overrides.customOrderIds ?? []),
+    exchangeTriggerOrderIds: uniqueStrings(
+      overrides.exchangeTriggerOrderIds ?? [],
+    ),
+    customTriggerOrderIds: uniqueStrings(overrides.customTriggerOrderIds ?? []),
+    exchangePositionSides: uniqueStrings(overrides.exchangePositionSides ?? []),
+    orderStatuses: uniqueStrings(overrides.orderStatuses ?? []),
+    executionTypes: uniqueStrings(overrides.executionTypes ?? []),
+    algoStatuses: uniqueStrings(overrides.algoStatuses ?? []),
+    eventTimeMs: event.eventTime,
+    transactionTimeMs: readTimestamp(event, 'transactionTime'),
+  };
+}
+
+interface BinancePrivateEventSummaryInput {
+  subjects?: readonly (BinancePrivateEventSubject | undefined)[];
+  symbols?: readonly (string | undefined)[];
+  assets?: readonly (string | undefined)[];
+  exchangeOrderIds?: readonly (string | undefined)[];
+  customOrderIds?: readonly (string | undefined)[];
+  exchangeTriggerOrderIds?: readonly (string | undefined)[];
+  customTriggerOrderIds?: readonly (string | undefined)[];
+  exchangePositionSides?: readonly (string | undefined)[];
+  orderStatuses?: readonly (string | undefined)[];
+  executionTypes?: readonly (string | undefined)[];
+  algoStatuses?: readonly (string | undefined)[];
+}
 
 function normalizeUsdmPositionRow(
   row: {
@@ -882,6 +1066,25 @@ function nonZeroString(value: string | number | undefined): string | undefined {
   }
 
   return String(value);
+}
+
+function uniqueStrings<T extends string>(
+  values: readonly (T | undefined)[],
+): T[] {
+  return Array.from(new Set(values.filter(isNonEmptyString))) as T[];
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function readTimestamp(row: unknown, key: string): TimestampMs | undefined {
+  if (!isRecord(row)) {
+    return undefined;
+  }
+
+  const value = row[key];
+  return typeof value === 'number' ? value : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

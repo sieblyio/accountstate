@@ -43,10 +43,72 @@ export interface BybitStreamEventOptions {
   sequence?: string | number;
 }
 
+export type BybitPrivateEventSubject =
+  | 'positions'
+  | 'openOrders'
+  | 'balances'
+  | 'fills';
+
+export interface BybitPrivateEventSummary {
+  topic: BybitV5PrivateEvent['topic'] | string;
+  subjects: BybitPrivateEventSubject[];
+  symbols: string[];
+  assets: string[];
+  exchangeOrderIds: string[];
+  customOrderIds: string[];
+  exchangePositionSides: string[];
+  orderStatuses: string[];
+  executionTypes: string[];
+  eventTimeMs?: TimestampMs;
+}
+
+export interface BybitPositionIdxInput {
+  raw?: unknown;
+  positionIdx?: unknown;
+  exchangePositionSide?: unknown;
+  metadata?: {
+    exchangePositionSide?: unknown;
+  };
+}
+
 type BybitPositionRow = BybitV5LinearPositionRow | BybitV5WsPositionRow;
 type BybitOrderRow = BybitV5LinearOrderRow | BybitV5WsOrderRow;
 type BybitExecutionRow = BybitV5LinearExecutionRow | BybitV5WsExecutionRow;
 type BybitWalletRow = BybitV5WalletBalanceRow | BybitV5WsWalletRow;
+
+/**
+ * Return the Bybit V5 request `positionIdx` for a normalized position/order or
+ * raw Bybit row. Hedge LONG maps to `1`, hedge SHORT maps to `2`, and one-way
+ * or unknown position sides map to `0`.
+ */
+export function getBybitPositionIdx(input: BybitPositionIdxInput): 0 | 1 | 2 {
+  const directIdx = normalizePositionIdx(input.positionIdx);
+  if (directIdx !== undefined) {
+    return directIdx;
+  }
+
+  const rawIdx = isRecord(input.raw)
+    ? normalizePositionIdx(input.raw['positionIdx'])
+    : undefined;
+  if (rawIdx !== undefined) {
+    return rawIdx;
+  }
+
+  const positionSide = String(
+    input.exchangePositionSide ??
+      input.metadata?.exchangePositionSide ??
+      '',
+  ).toUpperCase();
+
+  if (positionSide === 'LONG' || positionSide === 'HEDGE_LONG') {
+    return 1;
+  }
+  if (positionSide === 'SHORT' || positionSide === 'HEDGE_SHORT') {
+    return 2;
+  }
+
+  return 0;
+}
 
 /**
  * Normalize one Bybit V5 linear position row from REST or private WebSocket.
@@ -256,6 +318,63 @@ export function normalizeBybitV5PrivateEvent(
   }
 }
 
+/**
+ * Summarize one Bybit V5 private WebSocket event without changing store state.
+ * Use this for logging, metrics, and application-owned coalescing.
+ */
+export function summarizeBybitV5PrivateEvent(
+  event: BybitV5PrivateEvent,
+): BybitPrivateEventSummary {
+  switch (event.topic) {
+    case 'position':
+      return createBybitPrivateEventSummary(event, {
+        subjects: event.data.length > 0 ? ['positions'] : [],
+        symbols: event.data.map((position) => position.symbol),
+        exchangePositionSides: event.data.map((position) =>
+          exchangePositionSideFromPositionIdx(position.positionIdx),
+        ),
+      });
+    case 'order':
+      return createBybitPrivateEventSummary(event, {
+        subjects: event.data.length > 0 ? ['openOrders'] : [],
+        symbols: event.data.map((order) => order.symbol),
+        exchangeOrderIds: event.data.map((order) =>
+          nonEmptyString(order.orderId),
+        ),
+        customOrderIds: event.data.map((order) =>
+          nonEmptyString(order.orderLinkId),
+        ),
+        exchangePositionSides: event.data.map((order) =>
+          exchangePositionSideFromPositionIdx(order.positionIdx),
+        ),
+        orderStatuses: event.data.map((order) => order.orderStatus),
+      });
+    case 'execution': {
+      const tradeExecutions = event.data.filter(isTradeExecution);
+      return createBybitPrivateEventSummary(event, {
+        subjects: tradeExecutions.length > 0 ? ['fills'] : [],
+        symbols: tradeExecutions.map((execution) => execution.symbol),
+        exchangeOrderIds: tradeExecutions.map((execution) =>
+          nonEmptyString(execution.orderId),
+        ),
+        customOrderIds: tradeExecutions.map((execution) =>
+          nonEmptyString(execution.orderLinkId),
+        ),
+        executionTypes: event.data.map((execution) => execution.execType),
+      });
+    }
+    case 'wallet':
+      return createBybitPrivateEventSummary(event, {
+        subjects: event.data.length > 0 ? ['balances'] : [],
+        assets: event.data.flatMap((wallet) =>
+          wallet.coin.map((coin) => coin.coin),
+        ),
+      });
+    default:
+      return createBybitPrivateEventSummary(event);
+  }
+}
+
 export const bybit = {
   rest: {
     positions(
@@ -331,9 +450,41 @@ export const bybit = {
     ) {
       return normalizeBybitV5PrivateEvent(event, scope, options);
     },
+    summarizePrivateEvent(event: BybitV5PrivateEvent) {
+      return summarizeBybitV5PrivateEvent(event);
+    },
   },
   submission: bybitSubmission,
 } as const;
+
+function createBybitPrivateEventSummary(
+  event: BybitV5PrivateEvent,
+  overrides: BybitPrivateEventSummaryInput = {},
+): BybitPrivateEventSummary {
+  return {
+    topic: event.topic,
+    subjects: uniqueStrings(overrides.subjects ?? []),
+    symbols: uniqueStrings(overrides.symbols ?? []),
+    assets: uniqueStrings(overrides.assets ?? []),
+    exchangeOrderIds: uniqueStrings(overrides.exchangeOrderIds ?? []),
+    customOrderIds: uniqueStrings(overrides.customOrderIds ?? []),
+    exchangePositionSides: uniqueStrings(overrides.exchangePositionSides ?? []),
+    orderStatuses: uniqueStrings(overrides.orderStatuses ?? []),
+    executionTypes: uniqueStrings(overrides.executionTypes ?? []),
+    eventTimeMs: event.creationTime,
+  };
+}
+
+interface BybitPrivateEventSummaryInput {
+  subjects?: readonly (BybitPrivateEventSubject | undefined)[];
+  symbols?: readonly (string | undefined)[];
+  assets?: readonly (string | undefined)[];
+  exchangeOrderIds?: readonly (string | undefined)[];
+  customOrderIds?: readonly (string | undefined)[];
+  exchangePositionSides?: readonly (string | undefined)[];
+  orderStatuses?: readonly (string | undefined)[];
+  executionTypes?: readonly (string | undefined)[];
+}
 
 function preparePositionSnapshotOptions(
   options: BybitRestSnapshotOptions | undefined,
@@ -505,6 +656,17 @@ function exchangePositionSideFromPositionIdx(positionIdx: number): string {
   }
 }
 
+function normalizePositionIdx(value: unknown): 0 | 1 | 2 | undefined {
+  const positionIdx =
+    typeof value === 'number' || typeof value === 'string'
+      ? Number(value)
+      : Number.NaN;
+
+  return positionIdx === 0 || positionIdx === 1 || positionIdx === 2
+    ? positionIdx
+    : undefined;
+}
+
 function orderStrategySideFromPositionIdx(
   positionIdx: number,
 ): OrderStrategySide | undefined {
@@ -595,6 +757,16 @@ function readString(row: unknown, key: string): string | undefined {
 
 function nonEmptyString(value: string | undefined): string | undefined {
   return value ? value : undefined;
+}
+
+function uniqueStrings<T extends string>(
+  values: readonly (T | undefined)[],
+): T[] {
+  return Array.from(new Set(values.filter(isNonEmptyString))) as T[];
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

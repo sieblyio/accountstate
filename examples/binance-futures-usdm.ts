@@ -32,7 +32,6 @@ if (!key || !secret) {
 const restClient = new USDMClient({
   api_key: key,
   api_secret: secret,
-  beautifyResponses: true,
 });
 
 // Create account state store
@@ -52,6 +51,8 @@ const wsClient = new WebsocketClient(
   {
     api_key: key,
     api_secret: secret,
+    // Raw events still emit on "message"; formatted events emit on
+    // "formattedMessage" for the legacy type guards below.
     beautify: true,
   },
   logger
@@ -130,7 +131,7 @@ async function main() {
   
   wsClient.on('formattedMessage', (data) => {
     if (isWsFormattedFuturesUserDataEvent(data)) {
-      // Handle different types of account-data events
+      // Handle different types of private WebSocket account events
       if (isWsFormattedFuturesUserDataAccountUpdate(data)) {
         handleAccountUpdate(data);
         return;
@@ -141,7 +142,7 @@ async function main() {
         return;
       } 
       
-      console.log(new Date(), 'Other account-data event:', data.eventType);
+      console.log(new Date(), 'Other private account event:', data.eventType);
     }
   });
   
@@ -163,8 +164,8 @@ async function main() {
     console.error(new Date(), 'WebSocket error:', error);
   });
   
-  // Subscribe to Binance's USD-M account-data stream
-  console.log(new Date(), 'Subscribing to USDM account-data stream...');
+  // Subscribe to Binance's USD-M private account stream
+  console.log(new Date(), 'Subscribing to USDM private account stream...');
   wsClient.subscribeUsdFuturesUserDataStream();
   
   // Setup periodic sync (as a backup to ensure state consistency)

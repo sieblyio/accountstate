@@ -30,6 +30,46 @@ export function assertDecimalString(value: string): DecimalString {
  * than JavaScript numbers.
  */
 export function toDecimalString(value: string | number): DecimalString {
-  const stringValue = String(value);
+  const stringValue =
+    typeof value === 'number' ? numberToPlainDecimalString(value) : value;
   return assertDecimalString(stringValue);
+}
+
+function numberToPlainDecimalString(value: number): string {
+  if (!Number.isFinite(value)) {
+    throw new Error(`Invalid decimal number: ${value}`);
+  }
+
+  const raw = String(value);
+  if (!/[eE]/.test(raw)) {
+    return raw;
+  }
+
+  const [coefficient, exponentText] = raw.toLowerCase().split('e');
+  const exponent = Number(exponentText);
+  const sign = coefficient.startsWith('-') ? '-' : '';
+  const unsignedCoefficient = coefficient.replace(/^[+-]/, '');
+  const [integerPart, fractionalPart = ''] = unsignedCoefficient.split('.');
+  const digits = `${integerPart}${fractionalPart}`;
+  const significantDigits = digits.replace(/^0+(?=\d)/, '');
+
+  if (/^0+$/.test(significantDigits)) {
+    return '0';
+  }
+
+  const decimalIndex = integerPart.length + exponent;
+  if (decimalIndex <= 0) {
+    return `${sign}0.${'0'.repeat(Math.abs(decimalIndex))}${significantDigits}`;
+  }
+
+  if (decimalIndex >= significantDigits.length) {
+    return `${sign}${significantDigits}${'0'.repeat(
+      decimalIndex - significantDigits.length,
+    )}`;
+  }
+
+  return `${sign}${significantDigits.slice(
+    0,
+    decimalIndex,
+  )}.${significantDigits.slice(decimalIndex)}`;
 }

@@ -37,7 +37,6 @@ import {
 } from './indexes.js';
 import {
   applyManagedOrderParsers,
-  lifecycleMatchesFilter,
   reconcilePositionLifecycles,
 } from './lifecycle.js';
 import {
@@ -90,7 +89,6 @@ import type {
   SnapshotInput,
   TimestampMs,
 } from './types.js';
-import type { LifecycleFilter, LifecycleIdentity } from './lifecycle.js';
 import type {
   CheckInvariantsOptions,
   InvariantRuntimeOptions,
@@ -488,31 +486,6 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Return current position lifecycles, optionally filtered by symbol, side, or
-   * lifecycle status.
-   */
-  getLifecycles(
-    scope: AccountScope,
-    filter: LifecycleFilter = {},
-  ): PositionLifecycle[] {
-    return this.getAccount(scope).lifecycles.filter((lifecycle) =>
-      lifecycleMatchesFilter(lifecycle, filter),
-    );
-  }
-
-  /**
-   * Return one lifecycle. If only a symbol is supplied and multiple hedge-mode
-   * sides match, this returns `undefined` instead of guessing.
-   */
-  getLifecycle(
-    scope: AccountScope,
-    identity: LifecycleIdentity,
-  ): PositionLifecycle | undefined {
-    const matches = this.getLifecycles(scope, identity);
-    return matches.length === 1 ? matches[0] : undefined;
-  }
-
-  /**
    * Apply one normalized adapter/replay fact.
    *
    * For typical integrations, prefer methods such as `setOpenOrders`,
@@ -665,7 +638,7 @@ export class ExchangeAccountStateStore {
     }
 
     if (input.subject === 'positions' || input.subject === 'openOrders') {
-      this.#reconcileLifecycles(state, input.scope, changeSet);
+      this.#reconcileLifecycles(state, input.scope);
     }
 
     return changeSet;
@@ -810,7 +783,7 @@ export class ExchangeAccountStateStore {
       addChangedSubject(changeSet, 'stateChecks');
     }
 
-    this.#reconcileLifecycles(state, input.scope, changeSet);
+    this.#reconcileLifecycles(state, input.scope);
 
     return changeSet;
   }
@@ -863,7 +836,7 @@ export class ExchangeAccountStateStore {
     changeSet.changed = true;
     addChangedSubject(changeSet, 'stateChecks');
 
-    this.#reconcileLifecycles(state, input.scope, changeSet);
+    this.#reconcileLifecycles(state, input.scope);
 
     return changeSet;
   }
@@ -908,7 +881,7 @@ export class ExchangeAccountStateStore {
     changeSet.changed = true;
     addChangedSubject(changeSet, 'stateChecks');
 
-    this.#reconcileLifecycles(state, input.scope, changeSet);
+    this.#reconcileLifecycles(state, input.scope);
 
     return changeSet;
   }
@@ -944,7 +917,7 @@ export class ExchangeAccountStateStore {
     }
     changeSet.changed = itemsRemoved > 0 || changeSet.warnings.length > 0;
 
-    this.#reconcileLifecycles(state, input.scope, changeSet);
+    this.#reconcileLifecycles(state, input.scope);
 
     return changeSet;
   }
@@ -1343,23 +1316,19 @@ export class ExchangeAccountStateStore {
   #reconcileLifecycles(
     state: ScopeState,
     scope: AccountScope,
-    changeSet: ChangeSet,
   ): void {
-    const { lifecycles, changes } = reconcilePositionLifecycles({
+    const { lifecycles, changed } = reconcilePositionLifecycles({
       scope,
       lifecycles: state.lifecycles,
       positions: Array.from(state.positions.values()),
       openOrders: Array.from(state.openOrders.values()),
     });
 
-    if (changes.length === 0) {
+    if (!changed) {
       return;
     }
 
     state.lifecycles = lifecycles;
-    changeSet.lifecycleChanges.push(...changes);
-    changeSet.changed = true;
-    addChangedSubject(changeSet, 'lifecycles');
   }
 
   /**
@@ -1570,7 +1539,6 @@ function createEmptyChangeSet(scope: AccountScope): ChangeSet {
     itemsRemoved: 0,
     itemsMarkedStale: 0,
     confidenceChanged: false,
-    lifecycleChanges: [],
     warnings: [],
   };
 }

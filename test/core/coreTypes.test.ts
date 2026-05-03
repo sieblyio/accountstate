@@ -60,8 +60,6 @@ function normalizedOrder(overrides: Partial<NormalizedOrder> = {}) {
       strategyId: 'strategy-1',
       role: 'DCA',
       step: 1,
-      lifecycleEpoch: 'epoch-1',
-      replacementGeneration: 0,
       exchangePositionSide: 'BOTH',
       strategySide: 'LONG',
     },
@@ -154,7 +152,6 @@ describe('core type contracts', () => {
           exchangePositionSide: 'BOTH',
           strategySide: 'LONG',
           lifecycleEpoch: 'epoch-1',
-          replacementGeneration: 0,
           openedAtMs: 1_700_000_000_000,
           lastQuantity: '0.100',
           lastAverageEntry: '50000.00',
@@ -193,7 +190,6 @@ describe('core type contracts', () => {
       itemsRemoved: 0,
       itemsMarkedStale: 0,
       confidenceChanged: true,
-      lifecycleChanges: [],
       warnings: [],
     };
 

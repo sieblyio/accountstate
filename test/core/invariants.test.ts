@@ -4,9 +4,8 @@ import type {
   AccountScope,
   NormalizedOrder,
   NormalizedPosition,
-  PositionLifecycle,
 } from '../../src';
-import type { AccountView } from '../../src/core';
+import type { AccountView, PositionLifecycle } from '../../src/core';
 
 const scope: AccountScope = {
   exchange: 'binance',
@@ -62,7 +61,6 @@ function lifecycle(
     exchangePositionSide: 'BOTH',
     strategySide: 'LONG',
     lifecycleEpoch: 'BTCUSDT:BOTH:LONG:1',
-    replacementGeneration: 0,
     openedAtMs: 1,
     lastQuantity: '0.100',
     lastAverageEntry: '50000.00',

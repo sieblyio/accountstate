@@ -1,25 +1,12 @@
 import type { ManagedOrderParser } from './plugins.js';
 import type {
   AccountScope,
-  LifecycleChange,
   NormalizedOrder,
   NormalizedPosition,
   OrderStrategySide,
   PositionLifecycle,
 } from './types.js';
 import { copyScope } from './utils.js';
-
-export interface LifecycleFilter {
-  symbol?: string;
-  exchangePositionSide?: string;
-  strategySide?: OrderStrategySide;
-  status?: PositionLifecycle['status'];
-  lifecycleEpoch?: string;
-}
-
-export interface LifecycleIdentity extends LifecycleFilter {
-  symbol: string;
-}
 
 interface LifecycleReconciliationInput {
   scope: AccountScope;
@@ -30,7 +17,7 @@ interface LifecycleReconciliationInput {
 
 interface LifecycleReconciliationResult {
   lifecycles: PositionLifecycle[];
-  changes: LifecycleChange[];
+  changed: boolean;
 }
 
 /**
@@ -63,9 +50,9 @@ export function reconcilePositionLifecycles(
       .filter(isOpenStrategyPosition)
       .map((position) => [getPositionLifecycleKey(position), position]),
   );
-  const changes: LifecycleChange[] = [];
   const nextLifecycles: PositionLifecycle[] = [];
   const handledActiveKeys = new Set<string>();
+  let changed = false;
 
   for (const lifecycle of input.lifecycles) {
     const key = getLifecycleKey(lifecycle);
@@ -77,9 +64,7 @@ export function reconcilePositionLifecycles(
         activePosition,
       );
       nextLifecycles.push(updated);
-      if (change) {
-        changes.push({ lifecycle: { ...updated }, change });
-      }
+      changed = changed || change;
       continue;
     }
 
@@ -87,13 +72,12 @@ export function reconcilePositionLifecycles(
       const cleanup = { ...lifecycle, status: 'cleanup_pending' as const };
       nextLifecycles.push(cleanup);
       if (lifecycle.status !== 'cleanup_pending') {
-        changes.push({ lifecycle: { ...cleanup }, change: 'cleanup_pending' });
+        changed = true;
       }
       continue;
     }
 
-    const settled = { ...lifecycle, status: 'settled' as const };
-    changes.push({ lifecycle: settled, change: 'settled' });
+    changed = true;
   }
 
   for (const [key, position] of activePositions.entries()) {
@@ -103,26 +87,10 @@ export function reconcilePositionLifecycles(
 
     const created = createPositionLifecycle(input.scope, position);
     nextLifecycles.push(created);
-    changes.push({ lifecycle: { ...created }, change: 'created' });
+    changed = true;
   }
 
-  return { lifecycles: nextLifecycles, changes };
-}
-
-export function lifecycleMatchesFilter(
-  lifecycle: PositionLifecycle,
-  filter: LifecycleFilter,
-): boolean {
-  return (
-    matchesOptional(lifecycle.symbol, filter.symbol) &&
-    matchesOptional(
-      lifecycle.exchangePositionSide,
-      filter.exchangePositionSide,
-    ) &&
-    matchesOptional(lifecycle.strategySide, filter.strategySide) &&
-    matchesOptional(lifecycle.status, filter.status) &&
-    matchesOptional(lifecycle.lifecycleEpoch, filter.lifecycleEpoch)
-  );
+  return { lifecycles: nextLifecycles, changed };
 }
 
 function parseManagedOrder(
@@ -144,12 +112,12 @@ function updateOpenLifecycle(
   position: NormalizedPosition,
 ): {
   lifecycle: PositionLifecycle;
-  change: LifecycleChange['change'] | undefined;
+  change: boolean;
 } {
   const quantityChanged = lifecycle.lastQuantity !== position.quantity;
   const averageEntryChanged =
     lifecycle.lastAverageEntry !== position.averageEntry;
-  const generationChanged = quantityChanged || averageEntryChanged;
+  const changed = quantityChanged || averageEntryChanged;
   const reopened = lifecycle.status !== 'open';
 
   const updated: PositionLifecycle = {
@@ -157,19 +125,13 @@ function updateOpenLifecycle(
     lastQuantity: position.quantity,
     lastAverageEntry: position.averageEntry,
     status: 'open',
-    replacementGeneration: generationChanged
-      ? lifecycle.replacementGeneration + 1
-      : lifecycle.replacementGeneration,
   };
 
-  if (generationChanged) {
-    return { lifecycle: updated, change: 'generation_advanced' };
-  }
-  if (reopened) {
-    return { lifecycle: updated, change: 'updated' };
+  if (changed || reopened) {
+    return { lifecycle: updated, change: true };
   }
 
-  return { lifecycle: updated, change: undefined };
+  return { lifecycle: updated, change: false };
 }
 
 function createPositionLifecycle(
@@ -187,7 +149,6 @@ function createPositionLifecycle(
       position.strategySide,
       position.updatedAtMs,
     ].join(':'),
-    replacementGeneration: 0,
     openedAtMs: position.updatedAtMs,
     lastQuantity: position.quantity,
     lastAverageEntry: position.averageEntry,
@@ -219,9 +180,6 @@ function orderMatchesLifecycle(
   order: NormalizedOrder,
   lifecycle: PositionLifecycle,
 ): boolean {
-  if (order.metadata?.lifecycleEpoch === lifecycle.lifecycleEpoch) {
-    return true;
-  }
   if (order.symbol !== lifecycle.symbol) {
     return false;
   }

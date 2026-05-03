@@ -41,13 +41,13 @@ ws.on('update', (event) => {
 const account = state.getAccount(scope);
 ```
 
-Your application owns the Bybit clients and account-data WebSocket stream
-lifecycle. On reconnect, call `recordStreamReconnected()` or apply a fresh REST
+Your application owns the Bybit clients and private WebSocket connection. On
+reconnect, call `recordStreamReconnected()` or apply a fresh REST
 snapshot directly:
 
 ```typescript
 state.recordStreamReconnected(scope, {
-  reason: 'Bybit account-data WebSocket stream restarted',
+  reason: 'Bybit private WebSocket stream restarted',
 });
 
 for (const check of state.getAccount(scope).stateChecks) {
@@ -67,11 +67,17 @@ REST helpers:
 Private WebSocket helpers:
 
 - `bybit.ws.privateEvent(scope, event)`
+- `bybit.ws.summarizePrivateEvent(event)`
 
 `privateEvent()` handles Bybit V5 private `position`, `order`, `execution`, and
 `wallet` events. REST `activeOrders()` is intended for the unfiltered active
 orders response, which can include regular reduce-only orders and conditional
 stop orders together.
+
+`summarizePrivateEvent()` returns a pure summary for logging or event
+coalescing: affected subjects, symbols, assets, order IDs, position sides, and
+exchange statuses. It does not apply state, schedule work, or decide whether
+REST recovery is needed.
 
 ## Order Identity
 
@@ -97,6 +103,15 @@ The adapter maps Bybit `positionIdx` into normalized position sides:
 - `1` -> hedge LONG leg
 - `2` -> hedge SHORT leg
 
+When building Bybit order requests from normalized positions or orders, use
+`getBybitPositionIdx(row)` instead of guessing from side strings:
+
+```typescript
+import { getBybitPositionIdx } from 'accountstate/bybit';
+
+const positionIdx = getBybitPositionIdx(position);
+```
+
 Bybit REST can return `list: []` for settle-coin position snapshots after all
 positions are closed. Passing that empty list to
 `bybit.rest.positions(scope, [])` replaces the current position snapshot and
@@ -104,7 +119,7 @@ removes stale positions for that scope.
 
 Bybit can also return symbol-scoped zero-size rows with `side: ""` and
 `size: "0"`. Pass those rows into `bybit.rest.positions(scope, rows)` as-is.
-The adapter treats them as flat terminal rows and limits the replacement to the
+The adapter treats them as flat terminal rows and limits the update to the
 returned symbol, so unrelated positions are not cleared accidentally.
 
 Bybit private WebSocket zero-size position rows are also normalized into close

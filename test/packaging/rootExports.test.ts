@@ -361,7 +361,13 @@ describe('root package exports', () => {
     ) as typeof sourceBinance;
 
     expect(typeof builtBinance.normalizeBinanceUsdmPosition).toBe('function');
+    expect(typeof builtBinance.summarizeBinanceUsdmPrivateEvent).toBe(
+      'function',
+    );
     expect(typeof builtBinance.binance.rest.positions).toBe('function');
+    expect(typeof builtBinance.binance.ws.summarizePrivateEvent).toBe(
+      'function',
+    );
     expect(typeof builtBinance.binance.submission.cancelRejected).toBe(
       'function',
     );
@@ -373,7 +379,9 @@ describe('root package exports', () => {
     ) as typeof sourceBybit;
 
     expect(typeof builtBybit.normalizeBybitV5LinearPosition).toBe('function');
+    expect(typeof builtBybit.summarizeBybitV5PrivateEvent).toBe('function');
     expect(typeof builtBybit.bybit.rest.positions).toBe('function');
+    expect(typeof builtBybit.bybit.ws.summarizePrivateEvent).toBe('function');
     expect(typeof builtBybit.bybit.submission.cancelRejected).toBe('function');
   });
 
@@ -431,6 +439,8 @@ describe('root package exports', () => {
       'SnapshotInput',
       'Provenance',
       'AccountViewConfidence',
+      'PositionLifecycle',
+      'LifecycleChange',
     ]) {
       expect(rootDts).not.toContain(internalType);
     }

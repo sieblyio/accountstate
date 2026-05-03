@@ -41,7 +41,9 @@
   "type": "module",
   "files": [
     "dist/*",
-    "docs/**/*.md"
+    "docs/**/*.md",
+    "examples/binance-usdm-exchange-account-state.ts",
+    "examples/bybit-v5-linear-exchange-account-state.ts"
   ],
   "scripts": {
     "build": "rm -fr dist/* && tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json && bash ./postBuild.sh",

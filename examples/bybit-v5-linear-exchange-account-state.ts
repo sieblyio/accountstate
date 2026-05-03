@@ -6,13 +6,13 @@ import {
   type AccountScope,
   type ExchangeAccount,
   type NormalizedOrder,
-} from '../src/index.js';
+} from 'accountstate';
 import {
   bybit,
   classifyBybitSubmissionError,
   isBybitUnknownOrderError,
   type BybitV5PrivateEvent,
-} from '../src/adapters/bybit/index.js';
+} from 'accountstate/bybit';
 
 const key = process.env.BYBIT_API_KEY || '';
 const secret = process.env.BYBIT_API_SECRET || '';
@@ -122,13 +122,12 @@ function onPrivateEvent(event: BybitV5PrivateEvent): void {
     change.changedSubjects.some(
       (subject) =>
         subject === 'positions' ||
-        subject === 'openOrders' ||
-        subject === 'lifecycles',
+        subject === 'openOrders',
     ),
   );
 
   if (shouldPlan) {
-    schedulePlannerPass('account_data');
+    schedulePlannerPass('private_ws');
   }
 }
 
@@ -227,7 +226,6 @@ function logProjection(reason: string, account: ExchangeAccount): void {
     positions: account.positions.length,
     openOrders: account.openOrders.length,
     balances: account.balances.length,
-    lifecycles: account.lifecycles.length,
     readyToTrade: account.readyToTrade,
     stateChecks: account.stateChecks.map((check) => ({
       subject: check.subject,
@@ -247,13 +245,13 @@ async function main(): Promise<void> {
 
   ws.on('reconnect', () => {
     state.recordStreamDisconnected(scope, {
-      reason: 'Bybit account-data WebSocket stream reconnecting',
+      reason: 'Bybit private WebSocket stream reconnecting',
     });
   });
 
   ws.on('reconnected', async () => {
     state.recordStreamReconnected(scope, {
-      reason: 'Bybit account-data WebSocket stream reconnected',
+      reason: 'Bybit private WebSocket stream reconnected',
     });
     await checkStateFromRest();
     await plannerPass('reconnected');
