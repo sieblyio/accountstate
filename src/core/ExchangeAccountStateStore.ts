@@ -157,7 +157,7 @@ export class ExchangeAccountStateStore {
    * Create an empty in-memory account store.
    *
    * The store owns no network clients; parent applications feed it normalized
-   * REST snapshots, private account-data updates, and order-submission outcomes.
+   * REST snapshots, private WebSocket updates, and order-submission outcomes.
    */
   constructor(options: ExchangeAccountStateStoreOptions = {}) {
     this.#managedOrderParsers = [...(options.managedOrderParsers ?? [])];
@@ -266,7 +266,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Apply one private account-data position update.
+   * Apply one private WebSocket position update.
    */
   applyPositionUpdate(
     scope: AccountScope,
@@ -279,7 +279,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Apply one private account-data order update.
+   * Apply one private WebSocket order update.
    */
   applyOrderUpdate(
     scope: AccountScope,
@@ -292,7 +292,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Apply one private account-data balance update.
+   * Apply one private WebSocket balance update.
    */
   applyBalanceUpdate(
     scope: AccountScope,
@@ -305,7 +305,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Apply one private account-data fill/trade update.
+   * Apply one private WebSocket fill/trade update.
    */
   applyFill(
     scope: AccountScope,
@@ -318,7 +318,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Record that the private account-data stream is connected.
+   * Record that the private WebSocket stream is connected.
    */
   recordStreamConnected(
     scope: AccountScope,
@@ -330,7 +330,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Record that the private account-data stream reconnected and add state checks.
+   * Record that the private WebSocket stream reconnected and add state checks.
    */
   recordStreamReconnected(
     scope: AccountScope,
@@ -342,7 +342,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Record that the private account-data stream disconnected and add state checks.
+   * Record that the private WebSocket stream disconnected and add state checks.
    */
   recordStreamDisconnected(
     scope: AccountScope,
@@ -354,7 +354,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Record a known private account-data stream gap and add state checks.
+   * Record a known private WebSocket stream gap and add state checks.
    */
   recordStreamGap(
     scope: AccountScope,
@@ -672,7 +672,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Record private account-data stream health without owning the stream
+   * Record private WebSocket stream health without owning the stream
    * connection itself.
    *
    * Gaps, reconnects, and disconnects mark account subjects stale and add
@@ -1039,7 +1039,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Translate normalized private account-data events into the same row reducers
+   * Translate normalized private WebSocket events into the same row reducers
    * used by snapshots so stream and REST paths cannot drift.
    */
   #applyPrivateStreamEvent(input: NormalizedPrivateEvent): ChangeSet {

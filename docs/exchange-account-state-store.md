@@ -2,7 +2,7 @@
 
 `ExchangeAccountStateStore` is the recommended API for new exchange
 integrations. It is an in-memory account state store for applications that
-already talk to exchange REST APIs and private WebSocket streams.
+already talk to exchange REST APIs and private account-data WebSocket streams.
 
 The store does not create clients, read API keys, reconnect sockets, retry REST
 calls, or schedule background work. Your app owns those concerns. The store owns
@@ -97,7 +97,7 @@ conditional, or unrelated-symbol orders.
 ## Private Account-Data Updates
 
 Use `apply*` methods for individual account changes received from private
-account-data streams:
+account-data WebSocket streams:
 
 ```typescript
 state.applyOrderUpdate(scope, order);
@@ -106,12 +106,12 @@ state.applyBalanceUpdate(scope, balance);
 state.applyFill(scope, fill);
 ```
 
-When the private account-data stream reconnects or has a known gap, tell the
-store:
+When the private account-data WebSocket stream reconnects or has a known gap,
+tell the store:
 
 ```typescript
 state.recordStreamReconnected(scope, {
-  reason: 'account-data stream reconnected',
+  reason: 'account-data WebSocket stream reconnected',
 });
 state.recordStreamGap(scope, { reason: 'missed sequence' });
 ```

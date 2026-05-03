@@ -54,7 +54,7 @@ const ws = new WebsocketClient(
 
 let pendingPlannerPass: ReturnType<typeof setTimeout> | undefined;
 
-async function syncFromRest(reason: string): Promise<void> {
+async function refreshFromRest(reason: string): Promise<void> {
   state.ingest(binance.rest.positions(scope, await usdm.getPositionsV3()));
   state.ingest(binance.rest.openOrders(scope, await usdm.getAllOpenOrders()));
   state.ingest(
@@ -95,7 +95,7 @@ function onAccountDataEvent(event: unknown): void {
   );
 
   if (shouldPlan) {
-    schedulePlannerPass('user_data');
+    schedulePlannerPass('account_data');
   }
 }
 
@@ -204,7 +204,7 @@ function logProjection(reason: string, account: ExchangeAccount): void {
 }
 
 async function main(): Promise<void> {
-  await syncFromRest('startup');
+  await refreshFromRest('startup');
   await plannerPass('startup');
 
   ws.on('formattedMessage', (event) => {
@@ -213,13 +213,13 @@ async function main(): Promise<void> {
 
   ws.on('reconnecting', () => {
     state.recordStreamDisconnected(scope, {
-      reason: 'Binance account-data reconnecting',
+      reason: 'Binance account-data WebSocket stream reconnecting',
     });
   });
 
   ws.on('reconnected', async (data) => {
     state.recordStreamReconnected(scope, {
-      reason: 'Binance account-data reconnected',
+      reason: 'Binance account-data WebSocket stream reconnected',
     });
 
     if (data?.wsKey && String(data.wsKey).includes('userData')) {

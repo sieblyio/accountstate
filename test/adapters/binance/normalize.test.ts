@@ -290,7 +290,7 @@ describe('Binance adapter normalizers', () => {
     expect(state.getPositions(scope)).toEqual([]);
   });
 
-  it('uses zero-position account-data updates to close the existing position', () => {
+  it('uses zero-position WebSocket updates to close the existing position', () => {
     const state = new ExchangeAccountStateStore();
 
     state.ingest(

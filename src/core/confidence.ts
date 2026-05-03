@@ -156,19 +156,19 @@ export function getStreamHealthWarning(
       return createStreamWarning(
         input,
         'stream_reconnected',
-        'Private account-data stream reconnected; account state needs checking.',
+        'Private WebSocket stream reconnected; account state needs checking.',
       );
     case 'disconnected':
       return createStreamWarning(
         input,
         'stream_disconnected',
-        'Private account-data stream disconnected; account state needs checking.',
+        'Private WebSocket stream disconnected; account state needs checking.',
       );
     case 'gap':
       return createStreamWarning(
         input,
         'stream_gap',
-        'Private account-data stream reported a gap; account state needs checking.',
+        'Private WebSocket stream reported a gap; account state needs checking.',
       );
   }
 }

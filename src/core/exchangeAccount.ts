@@ -71,7 +71,7 @@ export interface SetSnapshotOptions {
 }
 
 /**
- * Metadata for one normalized private account-data row update.
+ * Metadata for one normalized private WebSocket row update.
  */
 export interface StreamUpdateOptions {
   /**
@@ -290,7 +290,7 @@ export function createSetSnapshotInput<TSubject extends SnapshotSubject>(
 }
 
 /**
- * Build an upsert-style snapshot for a single private account-data row.
+ * Build an upsert-style snapshot for a single private WebSocket row.
  */
 export function createStreamUpdateSnapshotInput<
   TSubject extends SnapshotSubject,

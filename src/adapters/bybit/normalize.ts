@@ -174,8 +174,7 @@ export function normalizeBybitV5WalletBalances(
 }
 
 /**
- * Normalize a Bybit V5 private account-data stream event into store-ingestable
- * facts.
+ * Normalize a Bybit V5 private WebSocket event into store-ingestable facts.
  */
 export function normalizeBybitV5PrivateEvent(
   event: BybitV5PrivateEvent,

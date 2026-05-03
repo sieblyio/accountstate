@@ -137,7 +137,7 @@ export const defaultAccountStateFixtures = [
   {
     name: 'stream-confirmation-converts-provisional-to-open',
     description:
-      'A private account-data order update converges a provisional custom-order-id order with the exchange order id.',
+      'A private WebSocket order update converges a provisional custom-order-id order with the exchange order id.',
     initialFacts: [
       {
         type: 'local_submission_accepted',
@@ -281,7 +281,7 @@ export const defaultAccountStateFixtures = [
   {
     name: 'stream-gap-adds-state-check',
     description:
-      'A private account-data stream gap marks account subjects stale and requests immediate REST refresh.',
+      'A private WebSocket stream gap marks account subjects stale and requests immediate REST refresh.',
     initialFacts: [
       restSnapshot('positions', [position()], 1, 'replace-scope'),
       restSnapshot('openOrders', [order()], 1, 'replace-scope'),

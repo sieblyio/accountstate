@@ -41,12 +41,13 @@ ws.on('update', (event) => {
 const account = state.getAccount(scope);
 ```
 
-Your application owns the Bybit clients and connection lifecycle. On reconnect,
-call `recordStreamReconnected()` or apply a fresh REST snapshot directly:
+Your application owns the Bybit clients and account-data WebSocket stream
+lifecycle. On reconnect, call `recordStreamReconnected()` or apply a fresh REST
+snapshot directly:
 
 ```typescript
 state.recordStreamReconnected(scope, {
-  reason: 'Bybit account-data stream restarted',
+  reason: 'Bybit account-data WebSocket stream restarted',
 });
 
 for (const check of state.getAccount(scope).stateChecks) {
@@ -83,7 +84,9 @@ Application code should usually query by those common fields:
 
 ```typescript
 state.getOrder(scope, { customOrderId: 'order-1' });
-state.getOrder(scope, { exchangeOrderId: '9bb63134-6f73-4fb2-beee-56c089952da2' });
+state.getOrder(scope, {
+  exchangeOrderId: '9bb63134-6f73-4fb2-beee-56c089952da2',
+});
 ```
 
 ## Position Mode

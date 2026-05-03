@@ -4,7 +4,7 @@ This playbook shows the common Binance USD-M account-state workflow:
 
 ```text
 startup REST snapshots
-  + private account-data events
+  + private account-data WebSocket events
   + local submit/cancel outcomes
   + reconnect REST refresh
   -> accountstate
@@ -48,7 +48,7 @@ On startup, fetch and apply the current exchange state before making trading
 decisions:
 
 ```typescript
-async function syncFromRest(reason: string) {
+async function refreshFromRest(reason: string) {
   state.ingest(binance.rest.positions(scope, await usdm.getPositionsV3()));
   state.ingest(
     binance.rest.openOrders(scope, await usdm.getAllOpenOrders()),
@@ -73,7 +73,7 @@ yet. When the strategy uses REST balances, map the response into
 
 ## Private Account-Data Updates
 
-During live operation, use private account-data events for account-state
+During live operation, use private account-data WebSocket events for account-state
 changes:
 
 ```typescript
@@ -93,14 +93,15 @@ Coalesce bursts in the application. For example, order and Algo events can
 usually schedule trading logic quickly, while trade or balance-only events can
 be debounced.
 
-Do not query REST on every private WebSocket event. REST is for startup,
-reconnect/gap recovery, operator-requested checks, and explicit `stateChecks`.
+Do not query REST on every private account-data WebSocket event. REST is for
+startup, reconnect/gap recovery, operator-requested checks, and explicit
+`stateChecks`.
 
 ## Submission Outcomes
 
 After placing or cancelling an order, immediately record the result you know.
-Do not wait for a later WebSocket confirmation before updating local account
-state.
+Do not wait for a later REST or WebSocket confirmation before updating local
+account state.
 
 The Binance adapter has pure outcome helpers for this. They convert responses or
 errors you already received into store facts; they do not submit, cancel, retry,
@@ -201,21 +202,21 @@ in open-order results.
 
 ## Reconnect And Gap Handling
 
-When the private account-data stream disconnects, pause live submissions in your
-application if that is appropriate for your integration:
+When the private account-data WebSocket stream disconnects, pause live
+submissions in your application if that is appropriate for your integration:
 
 ```typescript
 state.recordStreamDisconnected(scope, {
-  reason: 'account-data stream disconnected',
+  reason: 'account-data WebSocket stream disconnected',
 });
 ```
 
-When the stream reconnects or a sequence gap is detected, tell the store and
-then satisfy the resulting REST-backed state checks:
+When the account-data WebSocket stream reconnects or a sequence gap is detected,
+tell the store and then satisfy the resulting REST-backed state checks:
 
 ```typescript
 state.recordStreamReconnected(scope, {
-  reason: 'account-data stream reconnected',
+  reason: 'account-data WebSocket stream reconnected',
 });
 await checkStateFromRest();
 ```
@@ -238,7 +239,7 @@ async function checkStateFromRest() {
       );
     }
 
-    if (request.subject === 'fills') {
+    if (check.subject === 'fills') {
       state.ingest(
         binance.rest.accountTrades(scope, await usdm.getAccountTrades()),
       );
@@ -247,9 +248,10 @@ async function checkStateFromRest() {
 }
 ```
 
-The Binance SDK may own listen-key refresh or automatic account-data reconnects.
-Treat that as SDK/client lifecycle. If account updates may have been missed,
-call `recordStreamReconnected()` or `recordStreamGap()` and refresh the state checks.
+The Binance SDK may own listen-key refresh or automatic account-data WebSocket
+reconnects. Treat that as SDK/client lifecycle. If account updates may have been
+missed, call `recordStreamReconnected()` or `recordStreamGap()` and refresh the
+checked state through REST.
 
 ## Account View
 
@@ -318,7 +320,7 @@ function desiredMatchesActive(desired: NormalizedOrder, active: NormalizedOrder)
 ## Common Mistakes
 
 - Avoid legacy `AccountStateStore` for new exchange integrations.
-- Avoid REST queries on every private WebSocket event.
+- Avoid REST queries on every private account-data WebSocket event.
 - Record accepted cancel responses immediately instead of waiting for a later
   event.
 - Do not make `balances` or `fills` block readiness unless trading logic uses
@@ -334,8 +336,8 @@ function desiredMatchesActive(desired: NormalizedOrder, active: NormalizedOrder)
 ## Minimal Live Loop
 
 ```typescript
-await connectPrivateStream();
-await syncFromRest('startup');
+await connectAccountDataStream();
+await refreshFromRest('startup');
 await plannerPass('startup');
 
 ws.on('formattedMessage', (event) => {

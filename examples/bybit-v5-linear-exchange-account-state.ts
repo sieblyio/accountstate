@@ -52,7 +52,7 @@ const ws = new WebsocketClient(clientOptions, logger);
 
 let pendingPlannerPass: ReturnType<typeof setTimeout> | undefined;
 
-async function syncFromRest(reason: string): Promise<void> {
+async function refreshFromRest(reason: string): Promise<void> {
   const [positions, activeOrders, walletBalances, executions] =
     await Promise.all([
       rest.getPositionInfo({ category: 'linear', settleCoin: 'USDT' }),
@@ -128,7 +128,7 @@ function onPrivateEvent(event: BybitV5PrivateEvent): void {
   );
 
   if (shouldPlan) {
-    schedulePlannerPass('private_stream');
+    schedulePlannerPass('account_data');
   }
 }
 
@@ -238,7 +238,7 @@ function logProjection(reason: string, account: ExchangeAccount): void {
 }
 
 async function main(): Promise<void> {
-  await syncFromRest('startup');
+  await refreshFromRest('startup');
   await plannerPass('startup');
 
   ws.on('update', (event) => {
@@ -247,13 +247,13 @@ async function main(): Promise<void> {
 
   ws.on('reconnect', () => {
     state.recordStreamDisconnected(scope, {
-      reason: 'Bybit account-data stream reconnecting',
+      reason: 'Bybit account-data WebSocket stream reconnecting',
     });
   });
 
   ws.on('reconnected', async () => {
     state.recordStreamReconnected(scope, {
-      reason: 'Bybit account-data stream reconnected',
+      reason: 'Bybit account-data WebSocket stream reconnected',
     });
     await checkStateFromRest();
     await plannerPass('reconnected');

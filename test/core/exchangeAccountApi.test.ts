@@ -143,7 +143,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
     );
   });
 
-  it('account-data helpers produce the same state as stream reducer calls', () => {
+  it('WebSocket update helpers produce the same state as stream reducer calls', () => {
     const account = new ExchangeAccountStateStore();
     const reducer = new ExchangeAccountStateStore();
     const streamOrder = order({ source: 'ws', updatedAtMs: 10 });
@@ -276,7 +276,7 @@ describe('ExchangeAccountStateStore exchange account API', () => {
 
     const startup = state.getAccount(scope);
     expect(startup.readyToTrade).toBe(false);
-    expect(startup.stateChecks.map((request) => request.subject)).toEqual([
+    expect(startup.stateChecks.map((check) => check.subject)).toEqual([
       'positions',
       'openOrders',
       'balances',

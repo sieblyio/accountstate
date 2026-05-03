@@ -7,8 +7,8 @@ create REST clients, WebSocket clients, listen keys, timers, API keys, retry
 loops, or reconnect logic.
 
 For a complete Binance USD-M account-state workflow using startup REST snapshots,
-private WebSocket updates, local submission outcomes, and reconnect REST
-refresh, see
+private account-data WebSocket updates, local submission outcomes, and reconnect
+REST refresh, see
 [Binance USD-M integration playbook](../integration-playbook-binance-usdm.md).
 
 ## Install
@@ -46,12 +46,13 @@ ws.on('formattedMessage', (event) => {
 });
 ```
 
-Your application still owns the Binance clients and stream lifecycle. On
-reconnect, call `recordStreamReconnected()` or apply a fresh REST snapshot directly:
+Your application still owns the Binance clients and account-data WebSocket
+stream lifecycle. On reconnect, call `recordStreamReconnected()` or apply a
+fresh REST snapshot directly:
 
 ```typescript
 state.recordStreamReconnected(scope, {
-  reason: 'Binance account-data stream restarted',
+  reason: 'Binance account-data WebSocket stream restarted',
 });
 
 for (const check of state.getAccount(scope).stateChecks) {
@@ -68,7 +69,7 @@ REST helpers:
 - `binance.rest.openAlgoOrders(scope, rows)`
 - `binance.rest.accountTrades(scope, rows)`
 
-Private account-data helpers:
+Private account-data WebSocket helpers:
 
 - `binance.ws.userDataEvent(scope, event)`
 - `binance.ws.spotExecutionReport(scope, event)`
@@ -182,6 +183,6 @@ const results = runAccountStateFixtures({
 });
 ```
 
-These fixtures cover representative USD-M REST and account-data behavior,
-including partial fills, Algo trigger lifecycle, close-position canonicalization,
-and real unknown-order error payloads.
+These fixtures cover representative USD-M REST and WebSocket account-state
+behavior, including partial fills, Algo trigger lifecycle, close-position
+canonicalization, and real unknown-order error payloads.

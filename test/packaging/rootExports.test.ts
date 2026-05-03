@@ -162,7 +162,14 @@ describe('root package exports', () => {
       writeFixtureTypeProject(
         projectDir,
         `
-          import { ExchangeAccountStateStore, type AccountScope } from 'accountstate';
+          import {
+            ExchangeAccountStateStore,
+            type AccountScope,
+            type NormalizedBalance,
+            type NormalizedFill,
+            type NormalizedOrder,
+            type NormalizedPosition,
+          } from 'accountstate';
 
           const scope: AccountScope = {
             exchange: 'test',
@@ -170,8 +177,53 @@ describe('root package exports', () => {
             product: 'linear'
           };
 
+          declare const position: NormalizedPosition;
+          declare const order: NormalizedOrder;
+          declare const balance: NormalizedBalance;
+          declare const fill: NormalizedFill;
+
           const state = new ExchangeAccountStateStore();
-          state.setOpenOrders(scope, []);
+          state.setPositions(scope, [position]);
+          state.setOpenOrders(scope, [order]);
+          state.setBalances(scope, [balance]);
+          state.setFills(scope, [fill]);
+
+          state.applyPositionUpdate(scope, position);
+          state.applyOrderUpdate(scope, order);
+          state.applyBalanceUpdate(scope, balance);
+          state.applyFill(scope, fill);
+
+          state.recordStreamReconnected(scope, {
+            reason: 'fixture WebSocket stream reconnected'
+          });
+          state.recordOrderAccepted({
+            scope,
+            intentId: 'intent-1',
+            customOrderId: 'order-1',
+            order
+          });
+
+          const account = state.getAccount(scope, {
+            requiredSubjects: ['positions', 'openOrders']
+          });
+          const openOrders = state.getOpenOrders(scope);
+          const currentOrder = state.getOrder(scope, {
+            customOrderId: 'order-1'
+          });
+
+          void account;
+          void openOrders;
+          void currentOrder;
+
+          // @ts-expect-error Old update aliases are intentionally not public.
+          state.onOrderUpdate(scope, order);
+          // @ts-expect-error Old submission aliases are intentionally not public.
+          state.orderAccepted({
+            scope,
+            intentId: 'intent-1',
+            customOrderId: 'order-1',
+            order
+          });
         `,
       );
 
