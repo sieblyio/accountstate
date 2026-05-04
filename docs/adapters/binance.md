@@ -10,6 +10,10 @@ For a complete Binance USD-M account-state workflow using startup REST snapshots
 private WebSocket account updates, local submission outcomes, and reconnect
 REST refresh, see
 [Binance USD-M integration playbook](../integration-playbook-binance-usdm.md).
+For TP/SL/DCA managers and similar live workflows, also read the
+[position manager workflow pattern](../position-manager-workflow.md). That page
+describes the symbol-side queueing and confirmation model that should live in
+your application, not in the adapter.
 
 ## Install
 
@@ -146,9 +150,8 @@ Binance can canonicalize close-position Algo orders. For example, a submitted
 close-position order with a quantity may be accepted and echoed back with
 quantity `0`, `closePosition: true`, and `reduceOnly: true`.
 
-Use the exported comparison helper when comparing desired managed orders against
-active Binance rows. It applies Binance USD-M defaults for common REST and
-WebSocket echo fields, including close-position stop canonicalization:
+The exported comparison helper applies Binance USD-M defaults for common REST
+and WebSocket echo fields, including close-position stop canonicalization:
 
 ```typescript
 import { areBinanceManagedOrdersEquivalent } from 'accountstate/binance';
@@ -158,6 +161,13 @@ const equivalent = areBinanceManagedOrdersEquivalent({
   active,
 });
 ```
+
+Use it as an exchange-default policy, not as a complete TP/SL/DCA planner. Your
+application should still decide which app-owned slot an order belongs to and
+compare only the actionable fields for that slot. For example, a regular TP or
+DCA slot may care about quantity and price, while a close-position SL slot may
+care about trigger price and identity rather than every field Binance echoes
+back.
 
 ## Submission Outcomes
 

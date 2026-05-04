@@ -15,6 +15,13 @@ startup REST snapshots
 API keys, retries, or orders. Your application owns those concerns. The store
 only keeps the account view coherent from the account-state data you feed it.
 
+For TP/SL/DCA managers and similar live workflows, use this playbook together
+with the exchange-agnostic
+[position manager workflow pattern](./position-manager-workflow.md). The
+workflow document covers symbol-side queues, phase gating, confirmation, and
+REST trust boundaries. Those decisions belong in your application, not in the
+Binance adapter.
+
 ## Install
 
 ```bash
@@ -92,11 +99,13 @@ changes:
 
 ```typescript
 function onPrivateWebSocketEvent(event: unknown) {
+  const summary = binance.ws.summarizePrivateEvent(event as never);
   const changes = state.ingest(binance.ws.privateEvent(scope, event as never));
 
   for (const change of Array.isArray(changes) ? changes : [changes]) {
     if (change.changed) {
-      schedulePlannerPass('private_ws');
+      queueAffectedWork(summary);
+      scheduleWorkDrain('private_ws');
       break;
     }
   }
@@ -111,6 +120,11 @@ If you want to coalesce by event shape before ingesting, use
 `binance.ws.summarizePrivateEvent(event)`. The summary is only data: affected
 subjects, symbols, assets, order IDs, trigger-order IDs, and exchange statuses.
 Your application still decides debounce timing and recovery policy.
+
+For position managers, prefer a symbol-side work queue over a product-wide
+planner pass. Coalesce event bursts, read the current account view for the
+queued symbol/side, run one workflow phase, and wait for confirmation before
+running the next dependent phase.
 
 Do not query REST on every private WebSocket account event. REST is for
 startup, reconnect/gap recovery, operator-requested checks, and explicit
@@ -333,8 +347,7 @@ Binance can canonicalize close-position Algo orders. A request that includes a
 quantity may be accepted and echoed back with quantity `0`, `closePosition:
 true`, and `reduceOnly: true`.
 
-Use the Binance comparison helper when comparing desired managed orders against
-active exchange rows. It handles common USD-M echo defaults, including
+The Binance comparison helper handles common USD-M echo defaults, including
 close-position stop canonicalization:
 
 ```typescript
@@ -344,6 +357,12 @@ function desiredMatchesActive(desired: NormalizedOrder, active: NormalizedOrder)
   return areBinanceManagedOrdersEquivalent({ desired, active });
 }
 ```
+
+Use that helper as an exchange-default policy, not as the whole planner
+decision. Your application should first match the app-owned slot, then compare
+the fields that matter for that role. For example, a regular TP or DCA slot may
+be converged when quantity and price match, while a close-position SL slot may
+be converged when identity and trigger price match.
 
 ## Common Mistakes
 
@@ -358,6 +377,9 @@ function desiredMatchesActive(desired: NormalizedOrder, active: NormalizedOrder)
   event burst.
 - Do not compare close-position Algo rows field-for-field without the Binance
   comparison policy.
+- Do not use an exchange-default comparison helper as the whole TP/SL/DCA
+  planner decision. Match the app-owned slot first, then compare that slot's
+  actionable fields.
 - Do not put REST clients, WebSocket clients, API keys, timers, or reconnect
   loops inside adapter code.
 
@@ -366,11 +388,14 @@ function desiredMatchesActive(desired: NormalizedOrder, active: NormalizedOrder)
 ```typescript
 await connectPrivateWebSocket();
 await refreshFromRest('startup');
-await plannerPass('startup');
+queueAllOpenSymbolSides('startup');
+await drainWorkQueue('startup');
 
 ws.on('formattedMessage', (event) => {
+  const summary = binance.ws.summarizePrivateEvent(event);
   state.ingest(binance.ws.privateEvent(scope, event));
-  schedulePlannerPass('private_ws');
+  queueAffectedWork(summary);
+  scheduleWorkDrain('private_ws');
 });
 
 ws.on('reconnecting', () => {
@@ -380,10 +405,17 @@ ws.on('reconnecting', () => {
 ws.on('reconnected', async () => {
   state.recordStreamReconnected(scope, { reason: 'sdk reconnected' });
   await checkStateFromRest();
-  await plannerPass('reconnected');
+  queueAllOpenSymbolSides('reconnected');
+  await drainWorkQueue('reconnected');
 });
 
-async function plannerPass(reason: string) {
+async function drainWorkQueue(reason: string) {
+  for (const work of takeQueuedSymbolSides()) {
+    await runOneSymbolSidePhase(work, reason);
+  }
+}
+
+async function runOneSymbolSidePhase(work: WorkKey, reason: string) {
   const account = state.getAccount(scope, {
     requiredSubjects: ['positions', 'openOrders'],
   });
@@ -395,9 +427,16 @@ async function plannerPass(reason: string) {
     return;
   }
 
-  const intents = planner.plan(account);
+  const phase = planner.choosePhase(account, work);
+  const intents = planner.planPhase(account, work, phase);
 
   for (const intent of intents) {
+    const latest = state.getAccount(scope, {
+      requiredSubjects: ['positions', 'openOrders'],
+    });
+    if (!planner.premiseStillValid(latest, work, intent)) {
+      continue;
+    }
     await submitAndRecord(intent);
   }
 }

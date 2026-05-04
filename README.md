@@ -272,6 +272,7 @@ if (violations.some((violation) => violation.severity === 'error')) {
 ## Docs
 
 - [Exchange account store](./docs/exchange-account-state-store.md)
+- [Position manager workflow pattern](./docs/position-manager-workflow.md)
 - [Binance adapter](./docs/adapters/binance.md)
 - [Bybit adapter](./docs/adapters/bybit.md)
 - [Binance USD-M integration playbook](./docs/integration-playbook-binance-usdm.md)
@@ -294,8 +295,10 @@ maintaining an older integration or using the metadata persistence helpers.
 
 The recommended examples for new exchange integrations use
 `ExchangeAccountStateStore`. The exchange-account API is documented in
-[Exchange account store](./docs/exchange-account-state-store.md). Adapter docs
-are available for [Binance](./docs/adapters/binance.md) and
+[Exchange account store](./docs/exchange-account-state-store.md). For live
+TP/SL/DCA or position-management applications, start with the
+[position manager workflow pattern](./docs/position-manager-workflow.md).
+Adapter docs are available for [Binance](./docs/adapters/binance.md) and
 [Bybit](./docs/adapters/bybit.md). The Binance startup, WebSocket, and reconnect
 workflow is documented in
 [Binance USD-M integration playbook](./docs/integration-playbook-binance-usdm.md).

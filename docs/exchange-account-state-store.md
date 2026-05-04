@@ -136,6 +136,37 @@ const balance = state.getBalance(scope, 'USDT');
 `getPosition()` returns `undefined` instead of guessing when the identity is
 ambiguous. In hedge mode, pass `exchangePositionSide`.
 
+## Position Manager Workflows
+
+For TP/SL/DCA managers and similar live trading workflows, use
+`ExchangeAccountStateStore` as the current account view rather than building a
+second position or order cache.
+
+The recommended shape is:
+
+```text
+REST snapshots and private WebSocket events
+  -> ExchangeAccountStateStore
+  -> getAccount(scope)
+  -> application queue by affected symbol/side
+  -> one safe workflow phase
+  -> record observed submission outcomes
+  -> wait for REST or WebSocket confirmation
+```
+
+Keep the workflow outside the store. Your application owns symbol-side queues,
+debounce timing, phase selection, order submission, retry policy, and operator
+logs. The store owns the normalized account state and readiness checks.
+
+Before any live mutation that depends on a position or active order, re-read the
+account view and confirm the premise is still true. Use REST for startup,
+reconnect/gap recovery, explicit `stateChecks`, unknown submission status, and
+confirmation timeouts; do not poll REST after every healthy private WebSocket
+event.
+
+See [Position manager workflow pattern](./position-manager-workflow.md) for the
+full exchange-agnostic pattern.
+
 ## Order Submission Outcomes
 
 After submitting an order, record the outcome you know:

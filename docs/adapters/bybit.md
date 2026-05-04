@@ -6,6 +6,11 @@ It normalizes Bybit V5 linear REST responses and private WebSocket events into
 account-state updates. It does not create REST clients, WebSocket clients,
 timers, API keys, retry loops, subscriptions, or reconnect logic.
 
+For TP/SL/DCA managers and similar live workflows, read the
+[position manager workflow pattern](../position-manager-workflow.md). That page
+describes the symbol-side queueing and confirmation model that should live in
+your application, not in the adapter.
+
 ## Install
 
 ```bash
