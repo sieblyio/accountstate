@@ -20,6 +20,11 @@ export { createBinanceManagedOrderParser } from './managedIds.js';
 export {
   classifyBinanceSubmissionError,
   isBinanceApiErrorCode,
+  isBinanceNoNeedToModifyError,
+  isBinanceOrderWouldImmediatelyTriggerError,
+  isBinanceParameterNotRequiredOrAllowedError,
+  isBinancePositionUnavailableError,
+  isBinanceRiskLimitOrLeverageError,
   isBinanceUnknownOrderError,
 } from './errors.js';
 

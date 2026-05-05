@@ -12,6 +12,8 @@ export {
 export {
   classifyBybitSubmissionError,
   isBybitApiErrorCode,
+  isBybitAmendNoopError,
+  isBybitDuplicateOrderIdError,
   isBybitUnknownOrderError,
 } from './errors.js';
 

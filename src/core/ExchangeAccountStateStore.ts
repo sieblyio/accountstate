@@ -26,6 +26,8 @@ import {
   createStreamUpdateSnapshotInput,
   createSetSnapshotInput,
   createUnsupportedFactChangeSet,
+  filterOpenOrdersByTrust,
+  hasOpenOrderIdentity,
 } from './exchangeAccount.js';
 import {
   getBalanceKey,
@@ -58,6 +60,7 @@ import type {
   ExchangeAccountReadinessOptions,
   FillFilter,
   OpenOrderFilter,
+  OpenOrderReadOptions,
   OrderAcceptedInput,
   OrderNotFoundInput,
   OrderRejectedInput,
@@ -83,6 +86,7 @@ import type {
   NormalizedOrder,
   NormalizedPosition,
   OrderIdentity,
+  OrderIdentityFilter,
   PositionLifecycle,
   Provenance,
   SnapshotCoverage,
@@ -442,9 +446,11 @@ export class ExchangeAccountStateStore {
     scope: AccountScope,
     filter: OpenOrderFilter = {},
   ): NormalizedOrder[] {
-    return this.getAccount(scope).openOrders.filter((order) =>
-      openOrderMatchesFilter(order, filter),
-    );
+    const view = this.getAccountView(scope);
+    return filterOpenOrdersByTrust(
+      view.openOrders,
+      filter.trust ?? 'trustedOnly',
+    ).filter((order) => openOrderMatchesFilter(order, filter));
   }
 
   /**
@@ -453,9 +459,29 @@ export class ExchangeAccountStateStore {
   getOrder(
     scope: AccountScope,
     identity: OrderIdentity,
+    options: OpenOrderReadOptions = {},
   ): NormalizedOrder | undefined {
-    return this.getOpenOrders(scope).find((order) =>
+    return this.getOpenOrders(scope, {
+      ...identity,
+      trust: options.trust,
+    }).find((order) =>
       orderMatchesIdentity(order, identity),
+    );
+  }
+
+  /**
+   * Return whether the current open-order view contains the supplied regular
+   * or trigger/algo identity. Defaults to trusted exchange-confirmed rows.
+   */
+  hasOpenOrderIdentity(
+    scope: AccountScope,
+    identity: OrderIdentityFilter,
+    options: OpenOrderReadOptions = {},
+  ): boolean {
+    return hasOpenOrderIdentity(
+      this.getAccountView(scope).openOrders,
+      identity,
+      options,
     );
   }
 
@@ -696,9 +722,10 @@ export class ExchangeAccountStateStore {
    * Record that a locally submitted order was accepted by the parent exchange
    * client before stream or REST confirmation has arrived.
    *
-   * The order is kept visible as `provisional`, keyed by whatever identity is
-   * available, so a planner cannot accidentally submit the same custom order id twice
-   * during the confirmation window.
+   * The order is kept as `provisional`, keyed by whatever identity is
+   * available, so callers can opt into it for duplicate suppression and
+   * diagnostics during the confirmation window. Normal open-order reads hide
+   * provisional rows until REST or WebSocket confirmation arrives.
    */
   #applyLocalSubmissionAccepted(input: LocalSubmissionAcceptedFact): ChangeSet {
     const state = this.#getOrCreateScopeState(input.scope);
@@ -1419,7 +1446,7 @@ function replaceMissingRows<T extends Row>(
 
 /**
  * Normalize a locally accepted submission into the provisional open-order row
- * the planner should see before exchange confirmation arrives.
+ * used for duplicate suppression and diagnostics before exchange confirmation.
  */
 function createProvisionalOrder(
   input: LocalSubmissionAcceptedFact,

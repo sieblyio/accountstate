@@ -63,6 +63,10 @@ function listPackageSurfaceFiles() {
     packageJsonPath,
     join(packageRoot, 'README.md'),
   ];
+  const llmsPath = join(packageRoot, 'llms.txt');
+  if (existsSync(llmsPath)) {
+    files.push(llmsPath);
+  }
 
   for (const dir of ['docs', 'dist']) {
     const fullPath = join(packageRoot, dir);

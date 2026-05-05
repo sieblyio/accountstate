@@ -1,4 +1,4 @@
-import { ExchangeAccountStateStore } from '../../src';
+import { ExchangeAccountStateStore, hasOpenOrderIdentity } from '../../src';
 import type { AccountScope, NormalizedOrder } from '../../src';
 
 const scope: AccountScope = {
@@ -64,6 +64,42 @@ describe('ExchangeAccountStateStore local submission facts', () => {
     expect(state.getAccountView(scope).confidence.openOrders).toBe(
       'local_only',
     );
+    expect(state.getOpenOrders(scope)).toEqual([]);
+    expect(state.getOrder(scope, { customOrderId: 'client-1001' })).toBe(
+      undefined,
+    );
+    expect(state.getOpenOrders(scope, { trust: 'includeProvisional' })).toEqual(
+      [
+        order({
+          customOrderId: 'client-1001',
+          status: 'provisional',
+          source: 'local',
+          acceptedAtMs: 1_700_000_000_100,
+          updatedAtMs: 1_700_000_000_100,
+        }),
+      ],
+    );
+    expect(
+      state.getOrder(
+        scope,
+        { customOrderId: 'client-1001' },
+        { trust: 'includeProvisional' },
+      ),
+    ).toMatchObject({
+      customOrderId: 'client-1001',
+      status: 'provisional',
+    });
+    expect(
+      state.getAccount(scope, {
+        requiredSubjects: ['openOrders'],
+      }).readyToTrade,
+    ).toBe(true);
+    expect(
+      state.getAccount(scope, {
+        requiredSubjects: ['openOrders'],
+        openOrderTrust: 'includeProvisional',
+      }).openOrders,
+    ).toHaveLength(1);
   });
 
   it('REST snapshots confirm provisional custom-order-id orders without duplicating them', () => {
@@ -254,6 +290,50 @@ describe('ExchangeAccountStateStore local submission facts', () => {
       warnings: [],
     });
     expect(state.getAccountView(scope).openOrders).toEqual([]);
+  });
+
+  it('checks open-order identity using the normal trusted-order default', () => {
+    const state = new ExchangeAccountStateStore();
+
+    state.recordOrderAccepted({
+      scope,
+      intentId: 'intent-1',
+      customOrderId: 'client-1001',
+      order: order(),
+      acceptedAtMs: 1,
+    });
+
+    expect(
+      state.hasOpenOrderIdentity(scope, { customOrderId: 'client-1001' }),
+    ).toBe(false);
+    expect(
+      state.hasOpenOrderIdentity(
+        scope,
+        { customOrderId: 'client-1001' },
+        { trust: 'includeProvisional' },
+      ),
+    ).toBe(true);
+
+    state.applyOrderUpdate(
+      scope,
+      order({
+        exchangeOrderId: '1001',
+        customOrderId: 'client-1001',
+        status: 'new',
+        source: 'ws',
+        updatedAtMs: 2,
+      }),
+    );
+
+    const account = state.getAccount(scope);
+    expect(
+      hasOpenOrderIdentity(account.openOrders, {
+        exchangeOrderId: '1001',
+      }),
+    ).toBe(true);
+    expect(
+      state.hasOpenOrderIdentity(scope, { customOrderId: 'client-1001' }),
+    ).toBe(true);
   });
 
   it('terminal evidence warns when no active order matches', () => {

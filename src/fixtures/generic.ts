@@ -91,7 +91,7 @@ export const defaultAccountStateFixtures = [
   {
     name: 'accepted-submission-creates-provisional-order',
     description:
-      'A successful order submission is visible before REST or stream confirmation arrives.',
+      'A successful order submission is retained as provisional local evidence before REST or stream confirmation arrives.',
     facts: [
       {
         type: 'local_submission_accepted',

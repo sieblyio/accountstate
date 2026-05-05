@@ -42,9 +42,12 @@ Use this flow for live account-level workflows:
    confirm the position/order premise still exists.
 9. After a submit/cancel/amend attempt, record the observed outcome with the
    adapter's submission helpers or the store's `recordOrder*` methods.
-10. Wait for REST or WebSocket confirmation before moving to a later phase that
+10. Treat accepted submit responses as provisional local evidence. They suppress
+    duplicate submits, but they do not satisfy the default open-order read model
+    and do not unlock dependent phases.
+11. Wait for REST or WebSocket confirmation before moving to a later phase that
     depends on the previous mutation.
-11. Use REST again at trust boundaries: startup, restart, reconnect, known
+12. Use REST again at trust boundaries: startup, restart, reconnect, known
     stream gap, ingest error, unknown submission status, confirmation timeout,
     operator-requested check, or `stateChecks`.
 
@@ -73,6 +76,26 @@ The queue belongs to your application, not to `accountstate`. Adapter
 and subjects before or after ingesting the event, but they do not schedule
 work.
 
+## Private Event Routing
+
+Always feed private account events into `accountstate` immediately. Strategy
+scheduling is a separate application decision.
+
+Use a routing table like this for the simple lane:
+
+| Event kind | Store action | Workflow action |
+| --- | --- | --- |
+| position/account update | ingest immediately | schedule a bounded trailing symbol-side reconcile |
+| own order/algo confirmation | ingest immediately | clear pending confirmation and reconcile immediately |
+| order/algo/fill echo without pending confirmation | ingest immediately | state-only by default |
+| wallet/balance-only update | ingest immediately | state-only unless your strategy depends on balances |
+| reconnect, disconnect, or known stream gap | record stream health | satisfy `stateChecks` through REST before live mutation |
+
+Do not debounce accountstate ingestion. If you debounce anything, debounce only
+the application workflow scheduling for externally triggered position bursts.
+Own-order confirmations should bypass that delay because they unblock serialized
+workflows.
+
 ## Phase Gating
 
 Avoid trying to clean up, place protective orders, place DCA orders, and repair
@@ -100,12 +123,24 @@ After an accepted place/cancel/amend:
 
 - record the observed submission outcome in `accountstate`
 - keep the affected symbol/side queued or pending
+- read default open orders as trusted exchange-confirmed state
+- use `trust: 'includeProvisional'` only for duplicate suppression or
+  diagnostics
 - wait for a private WebSocket update or REST check to confirm the resulting
   open-order state
 - only then run the next dependent phase
 
 If confirmation times out, mark the relevant state for checking and refresh it
 through REST. Do not keep submitting based on an uncertain order state.
+
+Adapter subpaths expose small semantic error helpers for common exchange
+outcomes. Use those helpers to decide whether an observed cancel/amend failure
+is an idempotent no-op, a stale-target race, or a real recovery boundary, then
+record the resulting fact in the store. For example, Binance `-2011`/`-2013`
+can mean a cancel target is already absent, Binance `-5027` can mean an amend
+was already converged, and Bybit `retCode: 10001` with `order not modified`
+can be an amend no-op. Those helpers do not submit orders or update state by
+themselves.
 
 ## REST Boundaries
 
@@ -154,6 +189,34 @@ await submitProtectiveOrder(position);
 This is a store read, not a REST call. It catches stale queued work before your
 application submits orders for a position that has already changed or closed.
 
+## Custom Order IDs
+
+For simple in-memory managers, keep exchange-visible custom order IDs opaque and
+unique. They may include an app ownership prefix, and some exchanges may require
+a specific prefix or length, but they should not contain strategy state.
+
+Default split:
+
+```text
+internal SlotKey:
+  deterministic product/symbol/position-side/role/step/kind
+
+exchange-visible custom order id:
+  opaque unique lookup key, plus app ownership prefix if useful
+
+runtime registry:
+  custom order id -> internal SlotKey
+```
+
+Do not encode symbol, side, role, step, lifecycle epoch, replacement generation,
+or recovery state in the exchange-visible ID by default. If the runtime registry
+is lost after restart or recovery, cancel app-owned open orders by prefix/scope
+and rebuild from current hydrated positions.
+
+Parseable custom IDs are an advanced adoption lane. Use that lane only when the
+application also has durable strategy state and restart fixtures proving that
+cross-process adoption is safer than wipe-and-rebuild.
+
 ## What Not To Put In Accountstate
 
 Keep these concerns in the application, a separate strategy kit, or a companion
@@ -177,6 +240,7 @@ state store.
 - Running a full product-wide planner pass for every order, fill, balance, or
   position event.
 - Calling REST after every healthy private WebSocket event.
+- Treating accepted local submission rows as trusted active exchange orders.
 - Comparing every exchange echo/default field when deciding whether a managed
   order slot is already correct.
 - Moving to DCA or cleanup in the same pass that just submitted protective

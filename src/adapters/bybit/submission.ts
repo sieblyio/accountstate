@@ -85,8 +85,8 @@ export const bybitSubmission = {
 } as const;
 
 /**
- * Record a successful place response as a provisional open order while waiting
- * for REST or WebSocket confirmation.
+ * Record a successful place response as provisional local evidence while
+ * waiting for REST or WebSocket confirmation.
  */
 export function placeAccepted(
   input: BybitPlaceAcceptedInput,

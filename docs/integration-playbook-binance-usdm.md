@@ -140,6 +140,13 @@ The Binance adapter has pure outcome helpers for this. They convert responses or
 errors you already received into store facts; they do not submit, cancel, retry,
 or call REST.
 
+Accepted submissions create provisional local rows. Those rows are available
+with `state.getOpenOrders(scope, { trust: 'includeProvisional' })`, but the
+default `getAccount(scope).openOrders` and `getOpenOrders(scope)` views expose
+trusted exchange-confirmed rows only. Use provisional rows to suppress duplicate
+submissions or diagnose pending work; do not use them to unlock DCA, cleanup, or
+replacement phases before private WebSocket or REST confirmation.
+
 Accepted place:
 
 ```typescript
@@ -370,6 +377,8 @@ be converged when identity and trigger price match.
 - Avoid REST queries on every private WebSocket account event.
 - Record accepted cancel responses immediately instead of waiting for a later
   event.
+- Do not treat accepted place responses as trusted active orders. They are
+  provisional until REST or private WebSocket confirmation arrives.
 - Do not make `balances` or `fills` block readiness unless trading logic uses
   them.
 - Keep Binance Algo rows and generated regular rows separate.

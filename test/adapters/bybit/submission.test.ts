@@ -23,7 +23,8 @@ describe('Bybit submission outcome helpers', () => {
       }),
     );
 
-    expect(state.getOpenOrders(scope)).toEqual([
+    expect(state.getOpenOrders(scope)).toEqual([]);
+    expect(state.getOpenOrders(scope, { trust: 'includeProvisional' })).toEqual([
       order({
         customOrderId: 'link-1',
         status: 'provisional',

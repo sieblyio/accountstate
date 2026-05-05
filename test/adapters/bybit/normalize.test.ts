@@ -5,6 +5,8 @@ import {
   bybitRawSamples,
   classifyBybitSubmissionError,
   getBybitPositionIdx,
+  isBybitAmendNoopError,
+  isBybitDuplicateOrderIdError,
   isBybitUnknownOrderError,
   normalizeBybitV5LinearOrder,
   normalizeBybitV5LinearPosition,
@@ -301,6 +303,21 @@ describe('Bybit adapter normalizers', () => {
     expect(isBybitUnknownOrderError(bybitRawSamples.unknownOrderCancelError)).toBe(
       true,
     );
+    expect(
+      isBybitDuplicateOrderIdError(bybitRawSamples.duplicateOrderLinkIdError),
+    ).toBe(true);
+    expect(
+      isBybitAmendNoopError({
+        retCode: 10001,
+        retMsg: 'order not modified',
+      }),
+    ).toBe(true);
+    expect(
+      isBybitAmendNoopError({
+        retCode: 10001,
+        retMsg: 'param invalid',
+      }),
+    ).toBe(false);
     expect(
       classifyBybitSubmissionError(bybitRawSamples.duplicateOrderLinkIdError),
     ).toEqual({

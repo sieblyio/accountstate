@@ -133,6 +133,11 @@ state.getOrder(scope, { exchangeOrderId: '1001' });
 Trigger-order identity exists so a generated regular order and its triggering
 Algo order do not collide when Binance reuses custom IDs across both objects.
 
+For simple managers, treat submitted custom IDs as opaque unique lookup keys
+within Binance's product-specific rules, such as any required prefix or length.
+Keep slot context in your runtime registry and rebuild from hydrated positions
+after restart or lost registry state.
+
 ## Algo Trigger Behavior
 
 When a Binance USD-M Algo order triggers, Binance can emit:
@@ -175,6 +180,12 @@ The adapter includes pure helpers for Binance submission outcomes. They do not
 submit or cancel anything; they only convert a response or error your app
 already received into account-state facts.
 
+Accepted place helpers create provisional local rows. Those rows are available
+with `state.getOpenOrders(scope, { trust: 'includeProvisional' })`, but normal
+open-order reads return trusted exchange-confirmed rows only. Use provisional
+rows for duplicate suppression or diagnostics, not as proof that Binance has
+confirmed the order on the account stream.
+
 ```typescript
 import { binance } from 'accountstate/binance';
 
@@ -200,6 +211,17 @@ For a Binance unknown-order cancel error, `cancelRejected()` produces absent-ord
 evidence. For other cancel failures it leaves the order in place and requests an
 open-order refresh. Lower-level helpers such as `classifyBinanceSubmissionError()`
 and `isBinanceUnknownOrderError()` remain available for custom handling.
+
+The subpath also exports narrow semantic checks for common Binance outcomes:
+
+- `isBinanceNoNeedToModifyError()` for amend no-ops such as `-5027`
+- `isBinanceOrderWouldImmediatelyTriggerError()` for trigger rejection `-2021`
+- `isBinanceParameterNotRequiredOrAllowedError()` for invalid order-shape
+  parameters such as `-1106`
+- `isBinancePositionUnavailableError()` for close-position requests that need a
+  matching open position, such as `-4509`
+- `isBinanceRiskLimitOrLeverageError()` for max leverage or position-limit
+  failures such as `-2027`
 
 ## Fixtures
 

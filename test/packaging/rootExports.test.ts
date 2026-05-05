@@ -51,6 +51,9 @@ describe('root package exports', () => {
     expect(typeof sourceRoot.getUnrealisedPnl).toBe('function');
     expect(typeof sourceRoot.calculateDepthForPositions).toBe('function');
     expect(typeof sourceRoot.reportBalanceToApi).toBe('function');
+    expect(typeof sourceRoot.hasOpenOrderIdentity).toBe('function');
+    expect(typeof sourceRoot.filterOpenOrdersByTrust).toBe('function');
+    expect(typeof sourceRoot.isTrustedOpenOrder).toBe('function');
   });
 
   it('keeps reducer/fact types off the root autocomplete surface', () => {
@@ -371,6 +374,10 @@ describe('root package exports', () => {
     expect(typeof builtBinance.binance.submission.cancelRejected).toBe(
       'function',
     );
+    expect(typeof builtBinance.isBinanceNoNeedToModifyError).toBe('function');
+    expect(typeof builtBinance.isBinancePositionUnavailableError).toBe(
+      'function',
+    );
   });
 
   it('loads the built CommonJS Bybit subpath after build', () => {
@@ -383,6 +390,8 @@ describe('root package exports', () => {
     expect(typeof builtBybit.bybit.rest.positions).toBe('function');
     expect(typeof builtBybit.bybit.ws.summarizePrivateEvent).toBe('function');
     expect(typeof builtBybit.bybit.submission.cancelRejected).toBe('function');
+    expect(typeof builtBybit.isBybitAmendNoopError).toBe('function');
+    expect(typeof builtBybit.isBybitDuplicateOrderIdError).toBe('function');
   });
 
   it('emits no runtime exchange SDK import in package root or adapter JS', () => {

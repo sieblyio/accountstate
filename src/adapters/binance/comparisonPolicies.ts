@@ -238,14 +238,6 @@ function orderFieldValuesMatch(
   }
 
   if (
-    field === 'status' &&
-    isNewOrProvisionalStatus(desired.status) &&
-    isNewOrProvisionalStatus(active.status)
-  ) {
-    return true;
-  }
-
-  if (
     FALSE_DEFAULT_FIELDS.has(field) &&
     isUndefinedFalseDefault(desiredValue, activeValue)
   ) {
@@ -356,10 +348,6 @@ function isHedgeAlgoReduceOnlyEchoDefault(
 
 function isDefaultBinanceTimeInForce(value: unknown): boolean {
   return value === 'GTC' || value === 'GTE_GTC';
-}
-
-function isNewOrProvisionalStatus(value: NormalizedOrder['status']): boolean {
-  return value === 'new' || value === 'provisional';
 }
 
 function isZeroDecimal(value: unknown): boolean {

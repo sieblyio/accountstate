@@ -30,6 +30,7 @@ import type {
   TerminalReason,
   TimestampMs,
 } from './types.js';
+import { orderMatchesIdentity } from './indexes.js';
 import { copyScope } from './utils.js';
 
 type SnapshotRowForSubject<TSubject extends SnapshotSubject> =
@@ -212,6 +213,25 @@ export interface OpenOrderFilter extends OrderIdentityFilter {
   kind?: NormalizedOrderKind;
   status?: NormalizedOrderStatus;
   owner?: OrderOwner;
+  /**
+   * Controls whether local provisional/stale order rows are returned.
+   *
+   * Defaults to `trustedOnly`, which returns exchange-confirmed active rows for
+   * normal planner reads.
+   */
+  trust?: OpenOrderTrustMode;
+}
+
+export type OpenOrderTrustMode =
+  | 'trustedOnly'
+  | 'includeProvisional'
+  | 'all';
+
+export interface OpenOrderReadOptions {
+  /**
+   * Controls whether local provisional/stale order rows are included.
+   */
+  trust?: OpenOrderTrustMode;
 }
 
 /**
@@ -245,6 +265,14 @@ export interface ExchangeAccountReadinessOptions {
    * Prefer `requiredSubjects` for new integrations.
    */
   requireFills?: boolean;
+  /**
+   * Controls the open-order rows returned on the account read model.
+   *
+   * This does not force REST refresh by itself. Local accepted submissions can
+   * still keep the open-order subject usable while provisional rows remain
+   * hidden from the default read model.
+   */
+  openOrderTrust?: OpenOrderTrustMode;
 }
 
 /**
@@ -448,7 +476,10 @@ export function createExchangeAccount(
   return {
     scope: copyScope(view.scope),
     positions: view.positions,
-    openOrders: view.openOrders,
+    openOrders: filterOpenOrdersByTrust(
+      view.openOrders,
+      options.openOrderTrust ?? 'trustedOnly',
+    ),
     balances: view.balances,
     fills: view.fills,
     readyToTrade,
@@ -459,6 +490,47 @@ export function createExchangeAccount(
     stateChecks: accountStateChecks,
     stateCheckReasons: [...view.stateCheckReasons],
   };
+}
+
+/**
+ * Return true when an order should appear in the default open-order read model.
+ * Provisional rows are local acceptance evidence, not exchange confirmation.
+ * Stale rows are explicit uncertainty.
+ */
+export function isTrustedOpenOrder(order: NormalizedOrder): boolean {
+  return order.status !== 'provisional' && order.status !== 'stale';
+}
+
+/**
+ * Apply the standard accountstate trust modes for open-order reads.
+ */
+export function filterOpenOrdersByTrust(
+  orders: readonly NormalizedOrder[],
+  trust: OpenOrderTrustMode = 'trustedOnly',
+): NormalizedOrder[] {
+  switch (trust) {
+    case 'trustedOnly':
+      return orders.filter(isTrustedOpenOrder);
+    case 'includeProvisional':
+      return orders.filter((order) => order.status !== 'stale');
+    case 'all':
+      return [...orders];
+  }
+}
+
+/**
+ * Check whether an open-order list contains a regular or trigger/algo order
+ * identity. Uses the same trusted-open-order default as planner reads.
+ */
+export function hasOpenOrderIdentity(
+  orders: readonly NormalizedOrder[],
+  identity: OrderIdentityFilter,
+  options: OpenOrderReadOptions = {},
+): boolean {
+  return filterOpenOrdersByTrust(
+    orders,
+    options.trust ?? 'trustedOnly',
+  ).some((order) => orderMatchesIdentity(order, identity));
 }
 
 /**

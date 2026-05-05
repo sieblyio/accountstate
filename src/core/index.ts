@@ -1,5 +1,11 @@
 export { ExchangeAccountStateStore } from './ExchangeAccountStateStore.js';
 
+export {
+  filterOpenOrdersByTrust,
+  hasOpenOrderIdentity,
+  isTrustedOpenOrder,
+} from './exchangeAccount.js';
+
 export type {
   AccountFact,
   LocalOrderCancelledFact,
@@ -63,6 +69,8 @@ export type {
   ExchangeAccountReadinessOptions,
   FillFilter,
   OpenOrderFilter,
+  OpenOrderReadOptions,
+  OpenOrderTrustMode,
   OrderAcceptedInput,
   OrderCancelledInput,
   OrderNotFoundInput,

@@ -1,6 +1,7 @@
 import type { NormalizedSubmissionError } from '../../core/facts.js';
 
 const RETRYABLE_ERROR_CODES = new Set([-1001, -1003, -1006, -1007, -1021]);
+const UNKNOWN_ORDER_ERROR_CODES = new Set([-2011, -2013]);
 
 /**
  * Return true when an SDK/rest error exposes the requested Binance error code.
@@ -11,10 +12,54 @@ export function isBinanceApiErrorCode(error: unknown, code: number): boolean {
 }
 
 /**
- * Binance uses -2011 for "Unknown order sent" and related absent-order cases.
+ * Binance uses -2011 and -2013 for absent-order cases.
  */
 export function isBinanceUnknownOrderError(error: unknown): boolean {
-  return isBinanceApiErrorCode(error, -2011);
+  const code = extractBinanceApiErrorCode(error);
+  return typeof code === 'number'
+    ? UNKNOWN_ORDER_ERROR_CODES.has(code)
+    : UNKNOWN_ORDER_ERROR_CODES.has(Number(code));
+}
+
+/**
+ * Binance uses -5027 when an amend request matches the current order.
+ */
+export function isBinanceNoNeedToModifyError(error: unknown): boolean {
+  return isBinanceApiErrorCode(error, -5027);
+}
+
+/**
+ * Binance uses -2021 when a trigger order would fire immediately.
+ */
+export function isBinanceOrderWouldImmediatelyTriggerError(
+  error: unknown,
+): boolean {
+  return isBinanceApiErrorCode(error, -2021);
+}
+
+/**
+ * Binance uses -1106 when a parameter is not required or not allowed for the
+ * submitted order shape.
+ */
+export function isBinanceParameterNotRequiredOrAllowedError(
+  error: unknown,
+): boolean {
+  return isBinanceApiErrorCode(error, -1106);
+}
+
+/**
+ * Binance uses -4509 for requests that require an open position when no
+ * matching position is available.
+ */
+export function isBinancePositionUnavailableError(error: unknown): boolean {
+  return isBinanceApiErrorCode(error, -4509);
+}
+
+/**
+ * Binance uses -2027 for max leverage or position-limit failures.
+ */
+export function isBinanceRiskLimitOrLeverageError(error: unknown): boolean {
+  return isBinanceApiErrorCode(error, -2027);
 }
 
 /**

@@ -18,6 +18,23 @@ export function isBybitUnknownOrderError(error: unknown): boolean {
 }
 
 /**
+ * Return true for Bybit's narrow idempotent amend no-op response.
+ */
+export function isBybitAmendNoopError(error: unknown): boolean {
+  return (
+    isBybitApiErrorCode(error, 10001) &&
+    /order not modified/i.test(extractBybitErrorMessage(error))
+  );
+}
+
+/**
+ * Bybit V5 uses 110072 when an orderLinkId has already been used.
+ */
+export function isBybitDuplicateOrderIdError(error: unknown): boolean {
+  return isBybitApiErrorCode(error, 110072);
+}
+
+/**
  * Convert a Bybit SDK/REST error or nonzero retCode response into the store's
  * submission-error shape.
  */

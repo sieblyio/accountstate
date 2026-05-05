@@ -34,8 +34,9 @@ balances, fills, readiness, and state checks.
 into it:
 
 - **Positions** from REST snapshots and private WebSocket position updates.
-- **Open orders** from REST open-order snapshots, live order updates, accepted
-  submissions, cancel responses, and unknown-order evidence.
+- **Open orders** from REST open-order snapshots and private WebSocket order
+  updates, with local accepted submissions kept as provisional rows until REST
+  or WebSocket confirmation arrives.
 - **Balances** from REST balance snapshots and private WebSocket balance
   updates.
 - **Fills/trades** from REST trade history or private WebSocket execution
@@ -129,6 +130,18 @@ const positions = state.getPositions(scope);
 const openOrders = state.getOpenOrders(scope, { symbol: 'BTCUSDT' });
 const order = state.getOrder(scope, { customOrderId: 'my-order-id' });
 const balance = state.getBalance(scope, 'USDT');
+const targetStillOpen = state.hasOpenOrderIdentity(scope, {
+  customOrderId: 'my-order-id',
+});
+```
+
+Open-order reads default to trusted exchange-confirmed rows. If you need local
+accepted submissions for duplicate suppression or diagnostics, opt in:
+
+```typescript
+const visibleWhilePending = state.getOpenOrders(scope, {
+  trust: 'includeProvisional',
+});
 ```
 
 Positions, open orders, and balances are required for `readyToTrade`. Fills are
@@ -218,8 +231,13 @@ Method names follow the data flow: `set*` writes a current snapshot, `apply*`
 applies a WebSocket update already received by your app, `record*` records an
 observed fact or outcome, and `get*` reads the store.
 
-If your custom order IDs include strategy ownership metadata, register a small
-parser once:
+`recordOrderAccepted` records a provisional local row. It suppresses duplicate
+submission and is available with `trust: 'includeProvisional'`, but it is not a
+trusted active order in the default read model. REST or private WebSocket
+confirmation converts it into normal open-order state.
+
+If you deliberately use parseable custom order IDs, register a small parser
+once:
 
 ```typescript
 state.registerManagedOrderParser({
@@ -230,10 +248,13 @@ state.registerManagedOrderParser({
 });
 ```
 
-For simple in-memory managers, keep exchange-visible custom order IDs as app
-ownership and slot tags only. Do not encode lifecycle or replacement state into
-those IDs unless your application also persists that strategy state and has
-restart tests proving that adoption path.
+For simple in-memory managers, prefer opaque unique exchange-visible custom IDs
+with only an app ownership prefix. Keep deterministic slot state in your own
+runtime registry, such as `customOrderId -> SlotKey`. If that registry is lost
+after restart or recovery, cancel app-owned orders by prefix/scope and rebuild
+from current hydrated positions. Parseable custom IDs are an advanced adoption
+lane; only use them with durable strategy state and restart tests proving that
+path.
 
 ## Advanced Usage
 

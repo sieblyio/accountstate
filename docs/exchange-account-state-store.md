@@ -130,11 +130,31 @@ const position = state.getPosition(scope, {
 });
 const openOrders = state.getOpenOrders(scope, { symbol: 'BTCUSDT' });
 const order = state.getOrder(scope, { customOrderId: 'order-1' });
+const targetStillOpen = state.hasOpenOrderIdentity(scope, {
+  customOrderId: 'order-1',
+});
 const balance = state.getBalance(scope, 'USDT');
 ```
 
 `getPosition()` returns `undefined` instead of guessing when the identity is
 ambiguous. In hedge mode, pass `exchangePositionSide`.
+
+Open-order reads default to trusted exchange-confirmed rows. Locally accepted
+submissions are kept as provisional rows until REST or private WebSocket
+confirmation arrives. They are useful for duplicate suppression and diagnostics,
+but they do not appear in the normal open-order read model:
+
+```typescript
+const activeExchangeOrders = state.getOpenOrders(scope);
+const activePlusPendingLocalOrders = state.getOpenOrders(scope, {
+  trust: 'includeProvisional',
+});
+const diagnosticRows = state.getOpenOrders(scope, { trust: 'all' });
+```
+
+`trust: 'all'` includes stale rows as well as provisional rows. Most trading
+logic should use the default trusted view and keep pending-confirmation state in
+application workflow code.
 
 ## Position Manager Workflows
 
@@ -199,6 +219,13 @@ state.recordOrderStatusUnknown({
   },
 });
 ```
+
+An accepted submission creates a provisional local row. That row is available
+with `trust: 'includeProvisional'` and through the advanced `getAccountView()`,
+but it is hidden from `getAccount(scope).openOrders` and `getOpenOrders(scope)`
+until REST or private WebSocket confirmation arrives. This prevents accepted
+submit responses from unlocking later workflow phases as if the exchange had
+already confirmed the order.
 
 For cancel or unknown-order responses:
 

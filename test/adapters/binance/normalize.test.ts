@@ -9,6 +9,11 @@ import {
   classifyBinanceSubmissionError,
   createBinanceManagedOrderParser,
   explainBinanceManagedOrderDiff,
+  isBinanceNoNeedToModifyError,
+  isBinanceOrderWouldImmediatelyTriggerError,
+  isBinanceParameterNotRequiredOrAllowedError,
+  isBinancePositionUnavailableError,
+  isBinanceRiskLimitOrLeverageError,
   isBinanceUnknownOrderError,
   normalizeBinanceUsdmAccountAsset,
   normalizeBinanceUsdmAccountUpdate,
@@ -398,12 +403,57 @@ describe('Binance adapter normalizers', () => {
     const error = binanceRawSamples.realUnknownOrderError;
 
     expect(isBinanceUnknownOrderError(error)).toBe(true);
+    expect(
+      isBinanceUnknownOrderError({
+        code: -2013,
+        msg: 'Order does not exist.',
+      }),
+    ).toBe(true);
     expect(classifyBinanceSubmissionError(error)).toEqual({
       message: 'Unknown order sent.',
       code: -2011,
       retryable: false,
       raw: error,
     });
+  });
+
+  it('recognizes common Binance semantic submission errors', () => {
+    expect(
+      isBinanceNoNeedToModifyError({
+        code: -5027,
+        msg: 'No need to modify the order.',
+      }),
+    ).toBe(true);
+    expect(
+      isBinanceOrderWouldImmediatelyTriggerError({
+        code: '-2021',
+        msg: 'Order would immediately trigger.',
+      }),
+    ).toBe(true);
+    expect(
+      isBinanceParameterNotRequiredOrAllowedError({
+        body: {
+          code: -1106,
+          msg: "Parameter 'reduceOnly' sent when not required.",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isBinancePositionUnavailableError({
+        response: {
+          code: -4509,
+          msg: 'TIF GTE can only be used with open positions.',
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isBinanceRiskLimitOrLeverageError({
+        data: {
+          code: -2027,
+          msg: 'Exceeded the maximum allowable position at current leverage.',
+        },
+      }),
+    ).toBe(true);
   });
 
   it('treats Binance close-position stop defaults as equivalent', () => {
@@ -489,14 +539,18 @@ describe('Binance adapter normalizers', () => {
     });
   });
 
-  it('treats provisional accepted Binance orders as satisfying desired state', () => {
+  it('does not treat provisional accepted Binance orders as confirmed active state', () => {
     const desired = normalizedRegularOrder({ status: 'new' });
     const active = normalizedRegularOrder({
       status: 'provisional',
       source: 'local',
     });
 
-    expect(areBinanceManagedOrdersEquivalent({ desired, active })).toBe(true);
+    expect(areBinanceManagedOrdersEquivalent({ desired, active })).toBe(false);
+    expect(explainBinanceManagedOrderDiff({ desired, active })).toMatchObject({
+      equivalent: false,
+      differences: ['status'],
+    });
   });
 
   it('uses managed metadata when comparing Binance position sides', () => {

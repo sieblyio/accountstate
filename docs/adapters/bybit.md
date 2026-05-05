@@ -100,6 +100,11 @@ state.getOrder(scope, {
 });
 ```
 
+For simple managers, treat submitted `orderLinkId` values as opaque unique
+lookup keys, not parseable strategy state. Keep slot context in your runtime
+registry and rebuild from hydrated positions after restart or lost registry
+state.
+
 ## Position Mode
 
 The adapter maps Bybit `positionIdx` into normalized position sides:
@@ -154,6 +159,12 @@ The adapter includes pure helpers for Bybit submission outcomes. They do not
 submit or cancel anything; they only convert a response or error your app
 already received into account-state facts.
 
+Accepted place helpers create provisional local rows. Those rows are available
+with `state.getOpenOrders(scope, { trust: 'includeProvisional' })`, but normal
+open-order reads return trusted exchange-confirmed rows only. Use provisional
+rows for duplicate suppression or diagnostics, not as proof that Bybit has
+confirmed the order on the private stream.
+
 ```typescript
 import { bybit } from 'accountstate/bybit';
 
@@ -179,6 +190,13 @@ For a Bybit unknown-order cancel error, `cancelRejected()` produces absent-order
 evidence. For other cancel failures it leaves the order in place and requests an
 open-order refresh. Lower-level helpers such as `classifyBybitSubmissionError()`
 and `isBybitUnknownOrderError()` remain available for custom handling.
+
+The subpath also exports narrow semantic checks for common Bybit outcomes:
+
+- `isBybitAmendNoopError()` for the idempotent amend response
+  `retCode: 10001` with `retMsg` like `order not modified`
+- `isBybitDuplicateOrderIdError()` for reused `orderLinkId` responses such as
+  `retCode: 110072`
 
 ## Fixtures
 

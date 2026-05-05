@@ -6,6 +6,12 @@ export * from './util/reporting.js';
 export * from './AccountStateStore.js';
 export * from './core/ExchangeAccountStateStore.js';
 
+export {
+  filterOpenOrdersByTrust,
+  hasOpenOrderIdentity,
+  isTrustedOpenOrder,
+} from './core/exchangeAccount.js';
+
 export type {
   AccountId,
   AccountChangeSubject,
@@ -45,6 +51,8 @@ export type {
   ExchangeAccountReadinessOptions,
   FillFilter,
   OpenOrderFilter,
+  OpenOrderReadOptions,
+  OpenOrderTrustMode,
   OrderAcceptedInput,
   OrderNotFoundInput,
   OrderRejectedInput,

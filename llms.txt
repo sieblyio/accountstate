@@ -66,7 +66,6 @@ src/
   index.ts
 .eslintrc.js
 .gitignore
-.npmrc.template
 .nvmrc
 .prettierrc
 jest.config.json
@@ -123,16 +122,6 @@ export interface IncomingPriceEvent {
 ================
 File: .eslintrc.js
 ================
-
-
-================
-File: .npmrc.template
-================
-# This is a read token to easily acess this module in other projects. Copy this to other projects and rename it to .npmrc
-# Keep this secret!!
-registry=https://registry.npmjs.org/
-@tsquant:registry=https://registry.npmjs.org/
-//registry.npmjs.org/:_authToken=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
 
 ================
 File: .prettierrc
@@ -460,7 +449,6 @@ lerna-debug.log*
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
-.npmrc
 
 ================
 File: .nvmrc
