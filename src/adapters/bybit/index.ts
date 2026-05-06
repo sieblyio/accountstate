@@ -1,11 +1,14 @@
 export {
   bybit,
+  fingerprintBybitV5PrivateEvent,
   getBybitPositionIdx,
+  isBybitTerminalOrderStatus,
   normalizeBybitV5LinearExecution,
   normalizeBybitV5LinearOrder,
   normalizeBybitV5LinearPosition,
   normalizeBybitV5PrivateEvent,
   normalizeBybitV5WalletBalances,
+  routeBybitV5PrivateEvent,
   summarizeBybitV5PrivateEvent,
 } from './normalize.js';
 
@@ -13,7 +16,9 @@ export {
   classifyBybitSubmissionError,
   isBybitApiErrorCode,
   isBybitAmendNoopError,
+  isBybitBusinessSuccess,
   isBybitDuplicateOrderIdError,
+  isBybitOrderQuantityWouldBeZeroError,
   isBybitUnknownOrderError,
 } from './errors.js';
 
@@ -23,6 +28,7 @@ export { bybitAccountStateFixtures, bybitRawSamples } from './fixtures/index.js'
 
 export type {
   BybitPrivateEventSubject,
+  BybitPrivateEventRouteDecision,
   BybitPrivateEventSummary,
   BybitRestSnapshotOptions,
   BybitPositionIdxInput,

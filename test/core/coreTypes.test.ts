@@ -18,7 +18,12 @@ import {
   isDecimalString,
   toDecimalString,
 } from '../../src/core/decimal';
-import { copyScope, createScopeKey, isSameScope } from '../../src/core/utils';
+import {
+  copyScope,
+  createAccountScopeKey,
+  createScopeKey,
+  isSameScope,
+} from '../../src/core/utils';
 
 const scope: AccountScope = {
   exchange: 'binance',
@@ -269,6 +274,7 @@ describe('core scope helpers', () => {
 
     expect(copiedScope).toEqual(scope);
     expect(copiedScope).not.toBe(scope);
+    expect(createAccountScopeKey(scope)).toBe('binance:primary:usdm:testnet');
     expect(createScopeKey(scope)).toBe('binance:primary:usdm:testnet');
     expect(isSameScope(scope, copiedScope)).toBe(true);
     expect(

@@ -1,4 +1,5 @@
 import { toDecimalString } from '../../core/decimal.js';
+import { fingerprintExactPayload } from '../../core/fingerprint.js';
 import type {
   AccountFact,
   NormalizedPrivateEvent,
@@ -17,6 +18,7 @@ import type {
   SnapshotSubject,
   SnapshotCoverage,
   SnapshotMode,
+  StrategySide,
   TerminalReason,
   TimestampMs,
 } from '../../core/types.js';
@@ -72,6 +74,66 @@ export interface BinancePrivateEventSummary {
   eventTimeMs?: TimestampMs;
   transactionTimeMs?: TimestampMs;
 }
+
+export type BinancePrivateEventRouteDecision =
+  | {
+      kind: 'activeOrder';
+      source: 'ws';
+      eventType: 'ORDER_TRADE_UPDATE' | 'ALGO_UPDATE';
+      symbol: string;
+      customOrderId?: string;
+      customTriggerOrderId?: string;
+      exchangeOrderId?: string;
+      exchangeTriggerOrderId?: string;
+      orderStatus: string;
+      exchangePositionSide?: string;
+      strategySide?: OrderStrategySide;
+      raw: unknown;
+    }
+  | {
+      kind: 'terminalOrder';
+      source: 'ws';
+      eventType: 'ORDER_TRADE_UPDATE' | 'ALGO_UPDATE';
+      symbol: string;
+      customOrderId?: string;
+      customTriggerOrderId?: string;
+      exchangeOrderId?: string;
+      exchangeTriggerOrderId?: string;
+      orderStatus: string;
+      reason: TerminalReason;
+      exchangePositionSide?: string;
+      strategySide?: OrderStrategySide;
+      raw: unknown;
+    }
+  | {
+      kind: 'executionFill';
+      source: 'ws';
+      eventType: 'ORDER_TRADE_UPDATE' | 'TRADE_LITE';
+      symbol: string;
+      customOrderId?: string;
+      exchangeOrderId?: string;
+      exchangeTradeId?: string;
+      executionType?: string;
+      exchangePositionSide?: string;
+      strategySide?: OrderStrategySide;
+      raw: unknown;
+    }
+  | {
+      kind: 'position';
+      source: 'ws';
+      eventType: 'ACCOUNT_UPDATE';
+      symbol: string;
+      exchangePositionSide?: string;
+      strategySide?: StrategySide;
+      raw: unknown;
+    }
+  | {
+      kind: 'balance';
+      source: 'ws';
+      eventType: 'ACCOUNT_UPDATE';
+      asset?: string;
+      raw: unknown;
+    };
 
 /**
  * Normalize one USD-M position row from `USDMClient.getPositionsV3()`.
@@ -258,6 +320,68 @@ export function summarizeBinanceUsdmPrivateEvent(
 }
 
 /**
+ * Route one formatted USD-M private WebSocket event into row-level workflow
+ * hints. Ingest `ws.privateEvent()` into the store first, then use these pure
+ * decisions to mark app-owned scopes dirty, clear pending confirmations, or log
+ * fills. `TRADE_LITE` is fill evidence only, never active-order confirmation.
+ */
+export function routeBinanceUsdmPrivateEvent(
+  event: BinanceUsdmPrivateEvent,
+): BinancePrivateEventRouteDecision[] {
+  switch (event.eventType) {
+    case 'ACCOUNT_UPDATE':
+      return routeBinanceAccountUpdate(event);
+    case 'ORDER_TRADE_UPDATE':
+      return routeBinanceOrderTradeUpdate(event);
+    case 'ALGO_UPDATE':
+      return routeBinanceAlgoUpdate(event);
+    case 'TRADE_LITE':
+      return routeBinanceTradeLite(event);
+    default:
+      return [];
+  }
+}
+
+/**
+ * Return a stable exact-payload fingerprint for replay protection outside the
+ * reducer. This does not collapse raw one-letter and SDK-formatted variants of
+ * the same Binance event; choose one private event shape and feed only that
+ * shape into accountstate.
+ */
+export function fingerprintBinanceUsdmPrivateEvent(event: unknown): string {
+  return fingerprintExactPayload(event);
+}
+
+/**
+ * Return true when a regular Binance order status should not be treated as an
+ * active open-order confirmation.
+ */
+export function isBinanceTerminalOrderStatus(status: string): boolean {
+  return (
+    status === 'FILLED' ||
+    status === 'CANCELED' ||
+    status === 'EXPIRED' ||
+    status === 'EXPIRED_IN_MATCH' ||
+    status === 'REJECTED'
+  );
+}
+
+/**
+ * Return true when a Binance Algo status means the trigger-order row is no
+ * longer an active open Algo order. `TRIGGERED` is terminal for the Algo row;
+ * the resulting regular order is tracked by its own order events.
+ */
+export function isBinanceTerminalAlgoStatus(status: string): boolean {
+  return (
+    status === 'TRIGGERED' ||
+    status === 'FINISHED' ||
+    status === 'CANCELED' ||
+    status === 'EXPIRED' ||
+    status === 'REJECTED'
+  );
+}
+
+/**
  * Normalize a USD-M account update into position and balance update facts.
  */
 export function normalizeBinanceUsdmAccountUpdate(
@@ -364,7 +488,7 @@ export function normalizeBinanceUsdmOrderTradeUpdate(
     });
   }
 
-  if (order.executionType === 'TRADE' && Number(order.lastFilledQuantity) > 0) {
+  if (hasBinanceFillEvidence(order)) {
     facts.push({
       type: 'trade_executed',
       scope,
@@ -718,6 +842,18 @@ export const binance = {
     summarizePrivateEvent(event: BinanceUsdmPrivateEvent) {
       return summarizeBinanceUsdmPrivateEvent(event);
     },
+    routePrivateEvent(event: BinanceUsdmPrivateEvent) {
+      return routeBinanceUsdmPrivateEvent(event);
+    },
+    fingerprintPrivateEvent(event: unknown) {
+      return fingerprintBinanceUsdmPrivateEvent(event);
+    },
+    isTerminalOrderStatus(status: string) {
+      return isBinanceTerminalOrderStatus(status);
+    },
+    isTerminalAlgoStatus(status: string) {
+      return isBinanceTerminalAlgoStatus(status);
+    },
     spotExecutionReport(
       scope: AccountScope,
       event: BinanceSpotExecutionReportEvent,
@@ -792,6 +928,153 @@ function summarizeBinanceTradeLite(
     exchangeOrderIds: [String(event.orderId)],
     customOrderIds: [event.clientOrderId],
   });
+}
+
+function routeBinanceAccountUpdate(
+  event: BinanceUsdmAccountUpdateEvent,
+): BinancePrivateEventRouteDecision[] {
+  return [
+    ...event.updateData.updatedBalances.map(
+      (balance): BinancePrivateEventRouteDecision => ({
+        kind: 'balance',
+        source: 'ws',
+        eventType: 'ACCOUNT_UPDATE',
+        asset: balance.asset,
+        raw: balance,
+      }),
+    ),
+    ...event.updateData.updatedPositions.map(
+      (position): BinancePrivateEventRouteDecision => ({
+        kind: 'position',
+        source: 'ws',
+        eventType: 'ACCOUNT_UPDATE',
+        symbol: position.symbol,
+        exchangePositionSide: position.positionSide,
+        strategySide: strategySideFromPosition(
+          position.positionSide,
+          toDecimalString(position.positionAmount),
+        ),
+        raw: position,
+      }),
+    ),
+  ];
+}
+
+function routeBinanceOrderTradeUpdate(
+  event: BinanceUsdmOrderTradeUpdateEvent,
+): BinancePrivateEventRouteDecision[] {
+  const order = event.order;
+  const strategySide = strategySideFromPositionSide(order.positionSide);
+  const orderDecision: BinancePrivateEventRouteDecision =
+    isBinanceTerminalOrderStatus(order.orderStatus)
+      ? {
+          kind: 'terminalOrder',
+          source: 'ws',
+          eventType: 'ORDER_TRADE_UPDATE',
+          symbol: order.symbol,
+          exchangeOrderId: String(order.orderId),
+          customOrderId: order.clientOrderId,
+          orderStatus: order.orderStatus,
+          reason: terminalReasonFromOrderStatus(
+            normalizeBinanceOrderStatus(order.orderStatus),
+          ),
+          exchangePositionSide: order.positionSide,
+          strategySide,
+          raw: order,
+        }
+      : {
+          kind: 'activeOrder',
+          source: 'ws',
+          eventType: 'ORDER_TRADE_UPDATE',
+          symbol: order.symbol,
+          exchangeOrderId: String(order.orderId),
+          customOrderId: order.clientOrderId,
+          orderStatus: order.orderStatus,
+          exchangePositionSide: order.positionSide,
+          strategySide,
+          raw: order,
+        };
+
+  const decisions: BinancePrivateEventRouteDecision[] = [orderDecision];
+
+  if (hasBinanceFillEvidence(order)) {
+    decisions.push({
+      kind: 'executionFill',
+      source: 'ws',
+      eventType: 'ORDER_TRADE_UPDATE',
+      symbol: order.symbol,
+      exchangeOrderId: String(order.orderId),
+      customOrderId: order.clientOrderId,
+      exchangeTradeId:
+        order.tradeId && order.tradeId > 0 ? String(order.tradeId) : undefined,
+      executionType: order.executionType,
+      exchangePositionSide: order.positionSide,
+      strategySide,
+      raw: order,
+    });
+  }
+
+  return decisions;
+}
+
+function routeBinanceAlgoUpdate(
+  event: BinanceUsdmAlgoUpdateEvent,
+): BinancePrivateEventRouteDecision[] {
+  const order = event.algoOrder;
+  const strategySide = strategySideFromPositionSide(order.positionSide);
+
+  return [
+    isBinanceTerminalAlgoStatus(order.algoStatus)
+      ? {
+          kind: 'terminalOrder',
+          source: 'ws',
+          eventType: 'ALGO_UPDATE',
+          symbol: order.symbol,
+          exchangeOrderId: nonZeroString(order.orderId),
+          exchangeTriggerOrderId: String(order.algoId),
+          customTriggerOrderId: order.clientAlgoId,
+          orderStatus: order.algoStatus,
+          reason:
+            order.algoStatus === 'TRIGGERED'
+              ? 'triggered'
+              : terminalReasonFromOrderStatus(
+                  normalizeBinanceAlgoStatus(order.algoStatus),
+                ),
+          exchangePositionSide: order.positionSide,
+          strategySide,
+          raw: order,
+        }
+      : {
+          kind: 'activeOrder',
+          source: 'ws',
+          eventType: 'ALGO_UPDATE',
+          symbol: order.symbol,
+          exchangeOrderId: nonZeroString(order.orderId),
+          exchangeTriggerOrderId: String(order.algoId),
+          customTriggerOrderId: order.clientAlgoId,
+          orderStatus: order.algoStatus,
+          exchangePositionSide: order.positionSide,
+          strategySide,
+          raw: order,
+        },
+  ];
+}
+
+function routeBinanceTradeLite(
+  event: BinanceUsdmTradeLiteEvent,
+): BinancePrivateEventRouteDecision[] {
+  return [
+    {
+      kind: 'executionFill',
+      source: 'ws',
+      eventType: 'TRADE_LITE',
+      symbol: event.symbol,
+      exchangeOrderId: String(event.orderId),
+      customOrderId: event.clientOrderId,
+      exchangeTradeId: String(event.tradeId),
+      raw: event,
+    },
+  ];
 }
 
 function createBinancePrivateEventSummary(
@@ -876,6 +1159,7 @@ function normalizeBinanceOrderStatus(status: string): NormalizedOrderStatus {
     case 'CANCELED':
       return 'cancelled';
     case 'EXPIRED':
+    case 'EXPIRED_IN_MATCH':
       return 'expired';
     case 'REJECTED':
       return 'rejected';
@@ -884,6 +1168,12 @@ function normalizeBinanceOrderStatus(status: string): NormalizedOrderStatus {
     default:
       return 'unknown';
   }
+}
+
+function hasBinanceFillEvidence(
+  order: BinanceUsdmOrderTradeUpdateEvent['order'],
+): boolean {
+  return order.executionType === 'TRADE' && Number(order.lastFilledQuantity) > 0;
 }
 
 function normalizeBinanceAlgoStatus(status: string): NormalizedOrderStatus {

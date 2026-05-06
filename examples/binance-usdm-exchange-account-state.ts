@@ -5,18 +5,12 @@ import {
   ExchangeAccountStateStore,
   type AccountScope,
   type ExchangeAccount,
-  type NormalizedOrder,
+  type StateCheck,
 } from 'accountstate';
-import {
-  binance,
-  classifyBinanceSubmissionError,
-  isBinanceUnknownOrderError,
-} from 'accountstate/binance';
+import { binance, type BinanceUsdmPrivateEvent } from 'accountstate/binance';
 
 const key = process.env.BINANCE_API_KEY || '';
 const secret = process.env.BINANCE_API_SECRET || '';
-const enableLiveSubmissions =
-  process.env.ACCOUNTSTATE_EXAMPLE_LIVE_SUBMISSIONS === 'true';
 
 if (!key || !secret) {
   console.error(
@@ -42,40 +36,42 @@ const logger = {
   ...DefaultLogger,
   silly: () => undefined,
 };
+
 const ws = new WebsocketClient(
   {
     api_key: key,
     api_secret: secret,
-    // Raw events still emit on "message"; formatted events emit on
-    // "formattedMessage" and are accepted by binance.ws.privateEvent().
+    // Use formatted events for accountstate. Raw one-letter events may also be
+    // emitted on another event name; do not feed both shapes into the store.
     beautify: true,
   },
   logger,
 );
 
-let pendingPlannerPass: ReturnType<typeof setTimeout> | undefined;
-
 async function refreshFromRest(reason: string): Promise<void> {
-  state.ingest(binance.rest.positions(scope, await usdm.getPositionsV3()));
-  state.ingest(binance.rest.openOrders(scope, await usdm.getAllOpenOrders()));
-  state.ingest(
-    binance.rest.openAlgoOrders(scope, await usdm.getOpenAlgoOrders()),
-  );
-  state.ingest(
-    binance.rest.accountBalances(
-      scope,
-      (await usdm.getAccountInformationV3()).assets,
-    ),
-  );
+  const [positions, regularOrders, algoOrders, account] = await Promise.all([
+    usdm.getPositionsV3(),
+    usdm.getAllOpenOrders(),
+    usdm.getOpenAlgoOrders(),
+    usdm.getAccountInformationV3(),
+  ]);
 
-  logProjection(reason, state.getAccount(scope));
+  state.ingest(binance.rest.positions(scope, positions));
+  state.ingest(binance.rest.openOrders(scope, regularOrders));
+  state.ingest(binance.rest.openAlgoOrders(scope, algoOrders));
+  state.ingest(binance.rest.accountBalances(scope, account.assets));
+
+  logAccountState(reason);
 }
 
-async function checkStateFromRest(): Promise<void> {
-  const account = state.getAccount(scope, {
-    requiredSubjects: ['positions', 'openOrders'],
-  });
-  const subjects = new Set(account.stateChecks.map((check) => check.subject));
+async function checkStateFromRest(reason: string): Promise<void> {
+  const checks = state.getAccount(scope).stateChecks;
+
+  if (checks.length === 0) {
+    return;
+  }
+
+  const subjects = new Set(checks.map((check) => check.subject));
 
   if (subjects.has('positions')) {
     state.ingest(binance.rest.positions(scope, await usdm.getPositionsV3()));
@@ -89,127 +85,39 @@ async function checkStateFromRest(): Promise<void> {
   }
 
   if (subjects.has('balances')) {
-    state.ingest(
-      binance.rest.accountBalances(
-        scope,
-        (await usdm.getAccountInformationV3()).assets,
-      ),
-    );
+    const account = await usdm.getAccountInformationV3();
+    state.ingest(binance.rest.accountBalances(scope, account.assets));
   }
+
+  logStateChecks(`${reason}:rest_checked`, checks);
+  logAccountState(`${reason}:rest_checked`);
 }
 
-function onPrivateWebSocketEvent(event: unknown): void {
-  const changes = state.ingest(binance.ws.privateEvent(scope, event as never));
-  const changeSets = Array.isArray(changes) ? changes : [changes];
-  const shouldPlan = changeSets.some((change) =>
-    change.changedSubjects.some(
-      (subject) =>
-        subject === 'positions' ||
-        subject === 'openOrders',
-    ),
-  );
+function onPrivateEvent(event: BinanceUsdmPrivateEvent): void {
+  state.ingest(binance.ws.privateEvent(scope, event));
 
-  if (shouldPlan) {
-    schedulePlannerPass('private_ws');
-  }
-}
-
-function schedulePlannerPass(reason: string): void {
-  if (pendingPlannerPass) {
-    clearTimeout(pendingPlannerPass);
-  }
-
-  pendingPlannerPass = setTimeout(() => {
-    pendingPlannerPass = undefined;
-    void plannerPass(reason).catch((error) => {
-      console.error(new Date(), 'planner pass failed:', error);
+  const routes = binance.ws.routePrivateEvent(event);
+  if (routes.length > 0) {
+    console.log(new Date(), 'binance_private_routes', {
+      fingerprint: binance.ws.fingerprintPrivateEvent(event),
+      routes: routes.map((route) => ({
+        kind: route.kind,
+        symbol: 'symbol' in route ? route.symbol : undefined,
+        customOrderId: 'customOrderId' in route ? route.customOrderId : undefined,
+        customTriggerOrderId:
+          'customTriggerOrderId' in route
+            ? route.customTriggerOrderId
+            : undefined,
+        status: 'orderStatus' in route ? route.orderStatus : undefined,
+      })),
     });
-  }, 25);
-}
-
-async function plannerPass(reason: string): Promise<void> {
-  const account = state.getAccount(scope, {
-    requiredSubjects: ['positions', 'openOrders'],
-  });
-  logProjection(reason, account);
-
-  if (!account.readyToTrade) {
-    await checkStateFromRest();
-    return;
-  }
-
-  const intents = plan(account);
-  for (const intent of intents) {
-    await submitAndRecord(intent);
   }
 }
 
-function plan(_account: ExchangeAccount): OrderIntent[] {
-  return [];
-}
-
-async function submitAndRecord(intent: OrderIntent): Promise<void> {
-  if (!enableLiveSubmissions) {
-    console.log(
-      new Date(),
-      'Live submissions disabled. Set ACCOUNTSTATE_EXAMPLE_LIVE_SUBMISSIONS=true to wire real submit/cancel calls.',
-    );
-    return;
-  }
-
-  try {
-    const response = await submitToExchange(intent);
-
-    if (intent.action === 'place') {
-      state.recordOrderAccepted({
-        scope,
-        intentId: intent.intentId,
-        customOrderId: intent.order.customOrderId,
-        order: intent.order,
-        responseSummary: response,
-      });
-      return;
-    }
-
-    state.recordOrderCancelled({
-      scope,
-      intentId: intent.intentId,
-      identity: intent.identity,
-      responseSummary: response,
-    });
-  } catch (error) {
-    if (intent.action === 'cancel' && isBinanceUnknownOrderError(error)) {
-      state.recordOrderNotFound({
-        scope,
-        identity: intent.identity,
-      });
-      return;
-    }
-
-    state.recordOrderRejected({
-      scope,
-      intentId: intent.intentId,
-      customOrderId:
-        intent.action === 'place' ? intent.order.customOrderId : undefined,
-      error: classifyBinanceSubmissionError(error),
-    });
-
-    throw error;
-  }
-}
-
-async function submitToExchange(_intent: OrderIntent): Promise<unknown> {
-  throw new Error('Wire this function to your Binance submit/cancel code.');
-}
-
-function logProjection(reason: string, account: ExchangeAccount): void {
-  console.log(new Date(), 'account_state_projected', {
+function logStateChecks(reason: string, checks: StateCheck[]): void {
+  console.log(new Date(), 'state_checks', {
     reason,
-    product: account.scope.product,
-    positions: account.positions.length,
-    openOrders: account.openOrders.length,
-    readyToTrade: account.readyToTrade,
-    stateChecks: account.stateChecks.map((check) => ({
+    checks: checks.map((check) => ({
       subject: check.subject,
       reason: check.reason,
       priority: check.priority,
@@ -217,12 +125,51 @@ function logProjection(reason: string, account: ExchangeAccount): void {
   });
 }
 
+function logAccountState(reason: string): void {
+  const account = state.getAccount(scope);
+  console.log(new Date(), 'account_state', projectAccount(account, reason));
+}
+
+function projectAccount(account: ExchangeAccount, reason: string): object {
+  return {
+    reason,
+    readyToTrade: account.readyToTrade,
+    positions: account.positions.map((position) => ({
+      symbol: position.symbol,
+      side: position.exchangePositionSide,
+      strategySide: position.strategySide,
+      quantity: position.quantity,
+      entry: position.averageEntry,
+    })),
+    openOrders: account.openOrders.map((order) => ({
+      symbol: order.symbol,
+      kind: order.kind,
+      side: order.side,
+      status: order.status,
+      customOrderId: order.customOrderId,
+      customTriggerOrderId: order.customTriggerOrderId,
+      quantity: order.quantity,
+      price: order.price,
+      triggerPrice: order.triggerPrice,
+    })),
+    balances: account.balances.map((balance) => ({
+      asset: balance.asset,
+      wallet: balance.walletBalance,
+      available: balance.availableBalance,
+    })),
+    stateChecks: account.stateChecks.map((check) => ({
+      subject: check.subject,
+      reason: check.reason,
+      priority: check.priority,
+    })),
+  };
+}
+
 async function main(): Promise<void> {
   await refreshFromRest('startup');
-  await plannerPass('startup');
 
   ws.on('formattedMessage', (event) => {
-    onPrivateWebSocketEvent(event);
+    onPrivateEvent(event as BinanceUsdmPrivateEvent);
   });
 
   ws.on('reconnecting', () => {
@@ -231,15 +178,11 @@ async function main(): Promise<void> {
     });
   });
 
-  ws.on('reconnected', async (data) => {
+  ws.on('reconnected', async () => {
     state.recordStreamReconnected(scope, {
       reason: 'Binance private WebSocket stream reconnected',
     });
-
-    if (data?.wsKey && String(data.wsKey).includes('userData')) {
-      await checkStateFromRest();
-      await plannerPass('reconnected');
-    }
+    await checkStateFromRest('reconnected');
   });
 
   ws.on('exception', (error: unknown) => {
@@ -247,23 +190,11 @@ async function main(): Promise<void> {
   });
 
   ws.subscribeUsdFuturesUserDataStream();
-}
 
-type OrderIntent =
-  | {
-      action: 'place';
-      intentId: string;
-      order: NormalizedOrder;
-    }
-  | {
-      action: 'cancel';
-      intentId: string;
-      identity:
-        | { exchangeOrderId: string }
-        | { customOrderId: string }
-        | { exchangeTriggerOrderId: string }
-        | { customTriggerOrderId: string };
-    };
+  setInterval(() => {
+    logAccountState('interval');
+  }, 10_000);
+}
 
 void main().catch((error) => {
   console.error(new Date(), 'example failed:', error);

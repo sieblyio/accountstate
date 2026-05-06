@@ -6,6 +6,8 @@ export {
   isTrustedOpenOrder,
 } from './exchangeAccount.js';
 
+export { createAccountScopeKey } from './utils.js';
+
 export type {
   AccountFact,
   LocalOrderCancelledFact,

@@ -12,6 +12,10 @@ export {
   normalizeBinanceUsdmPrivateEvent,
   normalizeBinanceUsdmRegularOpenOrder,
   normalizeBinanceUsdmTradeLite,
+  fingerprintBinanceUsdmPrivateEvent,
+  isBinanceTerminalAlgoStatus,
+  isBinanceTerminalOrderStatus,
+  routeBinanceUsdmPrivateEvent,
   summarizeBinanceUsdmPrivateEvent,
 } from './normalize.js';
 
@@ -20,10 +24,14 @@ export { createBinanceManagedOrderParser } from './managedIds.js';
 export {
   classifyBinanceSubmissionError,
   isBinanceApiErrorCode,
+  isBinanceDuplicateClientOrderIdError,
+  isBinanceInsufficientMarginError,
+  isBinanceMinNotionalError,
   isBinanceNoNeedToModifyError,
   isBinanceOrderWouldImmediatelyTriggerError,
   isBinanceParameterNotRequiredOrAllowedError,
   isBinancePositionUnavailableError,
+  isBinanceReduceOnlyRejectedError,
   isBinanceRiskLimitOrLeverageError,
   isBinanceUnknownOrderError,
 } from './errors.js';
@@ -58,6 +66,7 @@ export type { BinanceManagedOrderIdParser } from './managedIds.js';
 
 export type {
   BinancePrivateEventSubject,
+  BinancePrivateEventRouteDecision,
   BinancePrivateEventSummary,
   BinanceRestSnapshotOptions,
   BinanceStreamEventOptions,

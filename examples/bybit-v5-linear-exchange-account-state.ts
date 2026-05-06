@@ -5,21 +5,14 @@ import {
   ExchangeAccountStateStore,
   type AccountScope,
   type ExchangeAccount,
-  type NormalizedOrder,
+  type StateCheck,
 } from 'accountstate';
-import {
-  bybit,
-  classifyBybitSubmissionError,
-  isBybitUnknownOrderError,
-  type BybitV5PrivateEvent,
-} from 'accountstate/bybit';
+import { bybit, type BybitV5PrivateEvent } from 'accountstate/bybit';
 
 const key = process.env.BYBIT_API_KEY || '';
 const secret = process.env.BYBIT_API_SECRET || '';
 const useDemoTrading = process.env.BYBIT_DEMO_TRADING === 'true';
 const useTestnet = !useDemoTrading && process.env.BYBIT_TESTNET === 'true';
-const enableLiveSubmissions =
-  process.env.ACCOUNTSTATE_EXAMPLE_LIVE_SUBMISSIONS === 'true';
 
 if (!key || !secret) {
   console.error(
@@ -50,8 +43,6 @@ const logger = {
 };
 const ws = new WebsocketClient(clientOptions, logger);
 
-let pendingPlannerPass: ReturnType<typeof setTimeout> | undefined;
-
 async function refreshFromRest(reason: string): Promise<void> {
   const [positions, activeOrders, walletBalances, executions] =
     await Promise.all([
@@ -70,14 +61,17 @@ async function refreshFromRest(reason: string): Promise<void> {
   state.ingest(bybit.rest.walletBalances(scope, walletBalances.result.list));
   state.ingest(bybit.rest.executions(scope, executions.result.list));
 
-  logProjection(reason, state.getAccount(scope));
+  logAccountState(reason);
 }
 
-async function checkStateFromRest(): Promise<void> {
-  const account = state.getAccount(scope, {
-    requiredSubjects: ['positions', 'openOrders', 'balances'],
-  });
-  const subjects = new Set(account.stateChecks.map((check) => check.subject));
+async function checkStateFromRest(reason: string): Promise<void> {
+  const checks = state.getAccount(scope).stateChecks;
+
+  if (checks.length === 0) {
+    return;
+  }
+
+  const subjects = new Set(checks.map((check) => check.subject));
 
   if (subjects.has('positions')) {
     const response = await rest.getPositionInfo({
@@ -108,126 +102,32 @@ async function checkStateFromRest(): Promise<void> {
     });
     state.ingest(bybit.rest.executions(scope, response.result.list));
   }
+
+  logStateChecks(`${reason}:rest_checked`, checks);
+  logAccountState(`${reason}:rest_checked`);
 }
 
 function onPrivateEvent(event: BybitV5PrivateEvent): void {
-  const facts = bybit.ws.privateEvent(scope, event);
-  if (facts.length === 0) {
-    return;
-  }
+  state.ingest(bybit.ws.privateEvent(scope, event));
 
-  const changes = state.ingest(facts);
-  const changeSets = Array.isArray(changes) ? changes : [changes];
-  const shouldPlan = changeSets.some((change) =>
-    change.changedSubjects.some(
-      (subject) =>
-        subject === 'positions' ||
-        subject === 'openOrders',
-    ),
-  );
-
-  if (shouldPlan) {
-    schedulePlannerPass('private_ws');
-  }
-}
-
-function schedulePlannerPass(reason: string): void {
-  if (pendingPlannerPass) {
-    clearTimeout(pendingPlannerPass);
-  }
-
-  pendingPlannerPass = setTimeout(() => {
-    pendingPlannerPass = undefined;
-    void plannerPass(reason).catch((error) => {
-      console.error(new Date(), 'planner pass failed:', error);
+  const routes = bybit.ws.routePrivateEvent(event);
+  if (routes.length > 0) {
+    console.log(new Date(), 'bybit_private_routes', {
+      fingerprint: bybit.ws.fingerprintPrivateEvent(event),
+      routes: routes.map((route) => ({
+        kind: route.kind,
+        symbol: 'symbol' in route ? route.symbol : undefined,
+        customOrderId: 'customOrderId' in route ? route.customOrderId : undefined,
+        status: 'orderStatus' in route ? route.orderStatus : undefined,
+      })),
     });
-  }, 25);
-}
-
-async function plannerPass(reason: string): Promise<void> {
-  const account = state.getAccount(scope, {
-    requiredSubjects: ['positions', 'openOrders', 'balances'],
-  });
-  logProjection(reason, account);
-
-  if (!account.readyToTrade) {
-    await checkStateFromRest();
-    return;
-  }
-
-  const intents = plan(account);
-  for (const intent of intents) {
-    await submitAndRecord(intent);
   }
 }
 
-function plan(_account: ExchangeAccount): OrderIntent[] {
-  return [];
-}
-
-async function submitAndRecord(intent: OrderIntent): Promise<void> {
-  if (!enableLiveSubmissions) {
-    console.log(
-      new Date(),
-      'Live submissions disabled. Set ACCOUNTSTATE_EXAMPLE_LIVE_SUBMISSIONS=true to wire real submit/cancel calls.',
-    );
-    return;
-  }
-
-  try {
-    const response = await submitToExchange(intent);
-
-    if (intent.action === 'place') {
-      state.recordOrderAccepted({
-        scope,
-        intentId: intent.intentId,
-        customOrderId: intent.order.customOrderId,
-        order: intent.order,
-        responseSummary: response,
-      });
-      return;
-    }
-
-    state.recordOrderCancelled({
-      scope,
-      intentId: intent.intentId,
-      identity: intent.identity,
-      responseSummary: response,
-    });
-  } catch (error) {
-    if (intent.action === 'cancel' && isBybitUnknownOrderError(error)) {
-      state.recordOrderNotFound({
-        scope,
-        identity: intent.identity,
-      });
-      return;
-    }
-
-    state.recordOrderRejected({
-      scope,
-      intentId: intent.intentId,
-      customOrderId:
-        intent.action === 'place' ? intent.order.customOrderId : undefined,
-      error: classifyBybitSubmissionError(error),
-    });
-
-    throw error;
-  }
-}
-
-async function submitToExchange(_intent: OrderIntent): Promise<unknown> {
-  throw new Error('Wire this function to your Bybit submit/cancel code.');
-}
-
-function logProjection(reason: string, account: ExchangeAccount): void {
-  console.log(new Date(), 'account_state_projected', {
+function logStateChecks(reason: string, checks: StateCheck[]): void {
+  console.log(new Date(), 'state_checks', {
     reason,
-    product: account.scope.product,
-    positions: account.positions.length,
-    openOrders: account.openOrders.length,
-    balances: account.balances.length,
-    readyToTrade: account.readyToTrade,
-    stateChecks: account.stateChecks.map((check) => ({
+    checks: checks.map((check) => ({
       subject: check.subject,
       reason: check.reason,
       priority: check.priority,
@@ -235,9 +135,47 @@ function logProjection(reason: string, account: ExchangeAccount): void {
   });
 }
 
+function logAccountState(reason: string): void {
+  const account = state.getAccount(scope);
+  console.log(new Date(), 'account_state', projectAccount(account, reason));
+}
+
+function projectAccount(account: ExchangeAccount, reason: string): object {
+  return {
+    reason,
+    readyToTrade: account.readyToTrade,
+    positions: account.positions.map((position) => ({
+      symbol: position.symbol,
+      side: position.exchangePositionSide,
+      strategySide: position.strategySide,
+      quantity: position.quantity,
+      entry: position.averageEntry,
+    })),
+    openOrders: account.openOrders.map((order) => ({
+      symbol: order.symbol,
+      kind: order.kind,
+      side: order.side,
+      status: order.status,
+      customOrderId: order.customOrderId,
+      quantity: order.quantity,
+      price: order.price,
+      triggerPrice: order.triggerPrice,
+    })),
+    balances: account.balances.map((balance) => ({
+      asset: balance.asset,
+      wallet: balance.walletBalance,
+      available: balance.availableBalance,
+    })),
+    stateChecks: account.stateChecks.map((check) => ({
+      subject: check.subject,
+      reason: check.reason,
+      priority: check.priority,
+    })),
+  };
+}
+
 async function main(): Promise<void> {
   await refreshFromRest('startup');
-  await plannerPass('startup');
 
   ws.on('update', (event) => {
     onPrivateEvent(event as BybitV5PrivateEvent);
@@ -253,8 +191,7 @@ async function main(): Promise<void> {
     state.recordStreamReconnected(scope, {
       reason: 'Bybit private WebSocket stream reconnected',
     });
-    await checkStateFromRest();
-    await plannerPass('reconnected');
+    await checkStateFromRest('reconnected');
   });
 
   ws.on('exception', (error: unknown) => {
@@ -262,23 +199,11 @@ async function main(): Promise<void> {
   });
 
   ws.subscribeV5(['position', 'order', 'execution', 'wallet'], 'linear', true);
-}
 
-type OrderIntent =
-  | {
-      action: 'place';
-      intentId: string;
-      order: NormalizedOrder;
-    }
-  | {
-      action: 'cancel';
-      intentId: string;
-      identity:
-        | { exchangeOrderId: string }
-        | { customOrderId: string }
-        | { exchangeTriggerOrderId: string }
-        | { customTriggerOrderId: string };
-    };
+  setInterval(() => {
+    logAccountState('interval');
+  }, 10_000);
+}
 
 void main().catch((error) => {
   console.error(new Date(), 'example failed:', error);

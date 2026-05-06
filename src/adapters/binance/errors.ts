@@ -63,6 +63,35 @@ export function isBinanceRiskLimitOrLeverageError(error: unknown): boolean {
 }
 
 /**
+ * Binance uses -2019 when margin is insufficient for the requested order.
+ */
+export function isBinanceInsufficientMarginError(error: unknown): boolean {
+  return isBinanceApiErrorCode(error, -2019);
+}
+
+/**
+ * Binance uses -2022 when a reduce-only order is rejected.
+ */
+export function isBinanceReduceOnlyRejectedError(error: unknown): boolean {
+  return isBinanceApiErrorCode(error, -2022);
+}
+
+/**
+ * Binance uses -5029 when an order/amend notional is below the exchange
+ * minimum.
+ */
+export function isBinanceMinNotionalError(error: unknown): boolean {
+  return isBinanceApiErrorCode(error, -5029);
+}
+
+/**
+ * Binance uses -4116 when a custom client order id has already been used.
+ */
+export function isBinanceDuplicateClientOrderIdError(error: unknown): boolean {
+  return isBinanceApiErrorCode(error, -4116);
+}
+
+/**
  * Convert a Binance SDK/rest error into the store's submission-error shape.
  */
 export function classifyBinanceSubmissionError(

@@ -119,6 +119,21 @@ state.recordStreamGap(scope, { reason: 'missed sequence' });
 The account will expose `stateChecks` so your app can verify the relevant REST
 state and feed it back into the matching setter.
 
+When using an exchange adapter, the normal private event path is:
+
+```typescript
+state.ingest(exchange.ws.privateEvent(scope, event));
+
+for (const route of exchange.ws.routePrivateEvent(event)) {
+  applyRouteToYourWorkflow(route);
+}
+```
+
+The first call updates the store. The route decisions are pure hints for your
+application and keep row-level meanings separate: active orders, terminal
+orders, fills, positions, and balances. See
+[Private event routing](./private-event-routing.md).
+
 ## Querying State
 
 ```typescript
@@ -227,6 +242,11 @@ until REST or private WebSocket confirmation arrives. This prevents accepted
 submit responses from unlocking later workflow phases as if the exchange had
 already confirmed the order.
 
+Use `recordOrderRejected()` when the rejection should remove a provisional row
+or mark open-order state uncertain. Deterministic no-order-created blocks, such
+as insufficient margin or position-limit errors, usually belong in application
+blocked/cooldown state instead.
+
 For cancel or unknown-order responses:
 
 ```typescript
@@ -279,6 +299,7 @@ Most application code should not need these:
 - `ingest()`
 - `getAccountView()`
 - `getStateChecks()`
+- `createAccountScopeKey()`
 - `accountstate/core`
 
 They exist for exchange adapters, replay tools, conformance fixtures, and

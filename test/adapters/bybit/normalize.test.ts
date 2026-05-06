@@ -4,13 +4,18 @@ import {
   bybitAccountStateFixtures,
   bybitRawSamples,
   classifyBybitSubmissionError,
+  fingerprintBybitV5PrivateEvent,
   getBybitPositionIdx,
   isBybitAmendNoopError,
+  isBybitBusinessSuccess,
   isBybitDuplicateOrderIdError,
+  isBybitOrderQuantityWouldBeZeroError,
+  isBybitTerminalOrderStatus,
   isBybitUnknownOrderError,
   normalizeBybitV5LinearOrder,
   normalizeBybitV5LinearPosition,
   normalizeBybitV5PrivateEvent,
+  routeBybitV5PrivateEvent,
   summarizeBybitV5PrivateEvent,
 } from '../../../src/adapters/bybit';
 import { runAccountStateFixtures } from '../../../src/conformance';
@@ -216,6 +221,49 @@ describe('Bybit adapter normalizers', () => {
     });
   });
 
+  it('normalizes Bybit close-all conditional SL rows with qty zero', () => {
+    const row = orderRow({
+      ...bybitRawSamples.restConditionalStopOrder,
+      orderLinkId: 'close-all-sl-long',
+      qty: '0',
+      leavesQty: '0',
+      triggerPrice: '42.856',
+      triggerDirection: 2,
+      closeOnTrigger: true,
+      reduceOnly: true,
+      positionIdx: 1,
+    });
+
+    expect(normalizeBybitV5LinearOrder(row, scope)).toMatchObject({
+      kind: 'conditional',
+      customOrderId: 'close-all-sl-long',
+      quantity: '0',
+      remainingQuantity: '0',
+      price: '0',
+      triggerPrice: '42.856',
+      closePosition: true,
+      reduceOnly: true,
+      exchangePositionSide: 'LONG',
+      strategySide: 'LONG',
+    });
+
+    expect(
+      routeBybitV5PrivateEvent({
+        topic: 'order',
+        creationTime: 1_778_021_909_965,
+        data: [row],
+      } as unknown as BybitV5PrivateEvent),
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'activeOrder',
+        topic: 'order',
+        customOrderId: 'close-all-sl-long',
+        orderStatus: 'Untriggered',
+        positionIdx: 1,
+      }),
+    ]);
+  });
+
   it('returns store-ingestable REST and WS facts through the namespaced helper', () => {
     const state = new ExchangeAccountStateStore();
 
@@ -281,6 +329,55 @@ describe('Bybit adapter normalizers', () => {
     );
   });
 
+  it('routes Bybit private events into row-level workflow hints', () => {
+    expect(routeBybitV5PrivateEvent(privateEvent(bybitRawSamples.wsFilledOrderEvent))).toEqual([
+      expect.objectContaining({
+        kind: 'terminalOrder',
+        topic: 'order',
+        customOrderId: 'as-omzvem5-1-ow-long',
+        orderStatus: 'Filled',
+        reason: 'filled',
+      }),
+    ]);
+
+    expect(routeBybitV5PrivateEvent(privateEvent(bybitRawSamples.wsExecutionEvent))).toEqual([
+      expect.objectContaining({
+        kind: 'executionFill',
+        topic: 'execution',
+        customOrderId: 'as-omzvem5-1-ow-long',
+        executionType: 'Trade',
+      }),
+    ]);
+
+    expect(routeBybitV5PrivateEvent(privateEvent(bybitRawSamples.wsZeroPositionEvent))).toEqual([
+      expect.objectContaining({
+        kind: 'position',
+        topic: 'position',
+        symbol: 'IPUSDT',
+        positionIdx: 0,
+      }),
+    ]);
+  });
+
+  it('exposes Bybit terminal status classifiers and exact fingerprints', () => {
+    expect(isBybitTerminalOrderStatus('Filled')).toBe(true);
+    expect(isBybitTerminalOrderStatus('Expired')).toBe(true);
+    expect(isBybitTerminalOrderStatus('Triggered')).toBe(true);
+    expect(isBybitTerminalOrderStatus('Untriggered')).toBe(false);
+    expect(bybit.ws.isTerminalOrderStatus('Deactivated')).toBe(true);
+
+    const event = privateEvent(bybitRawSamples.wsFilledOrderEvent);
+    expect(fingerprintBybitV5PrivateEvent(event)).toBe(
+      bybit.ws.fingerprintPrivateEvent({
+        creationTime: event.creationTime,
+        data: [...event.data],
+        id: event.id,
+        topic: event.topic,
+        wsKey: event.wsKey,
+      }),
+    );
+  });
+
   it('normalizes terminal private order events into terminal evidence', () => {
     const facts = normalizeBybitV5PrivateEvent(
       privateEvent(bybitRawSamples.wsFilledOrderEvent),
@@ -318,6 +415,13 @@ describe('Bybit adapter normalizers', () => {
         retMsg: 'param invalid',
       }),
     ).toBe(false);
+    expect(
+      isBybitOrderQuantityWouldBeZeroError({
+        retCode: 110017,
+        retMsg: 'current position is zero, cannot fix reduce-only order qty',
+      }),
+    ).toBe(true);
+    expect(isBybitBusinessSuccess({ retCode: 0, retMsg: 'OK' })).toBe(true);
     expect(
       classifyBybitSubmissionError(bybitRawSamples.duplicateOrderLinkIdError),
     ).toEqual({

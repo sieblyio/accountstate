@@ -9,11 +9,18 @@ import {
   classifyBinanceSubmissionError,
   createBinanceManagedOrderParser,
   explainBinanceManagedOrderDiff,
+  fingerprintBinanceUsdmPrivateEvent,
+  isBinanceDuplicateClientOrderIdError,
+  isBinanceInsufficientMarginError,
+  isBinanceMinNotionalError,
   isBinanceNoNeedToModifyError,
   isBinanceOrderWouldImmediatelyTriggerError,
   isBinanceParameterNotRequiredOrAllowedError,
   isBinancePositionUnavailableError,
+  isBinanceReduceOnlyRejectedError,
   isBinanceRiskLimitOrLeverageError,
+  isBinanceTerminalAlgoStatus,
+  isBinanceTerminalOrderStatus,
   isBinanceUnknownOrderError,
   normalizeBinanceUsdmAccountAsset,
   normalizeBinanceUsdmAccountUpdate,
@@ -21,6 +28,7 @@ import {
   normalizeBinanceUsdmOrderTradeUpdate,
   normalizeBinanceUsdmPosition,
   normalizeBinanceUsdmRegularOpenOrder,
+  routeBinanceUsdmPrivateEvent,
   summarizeBinanceUsdmPrivateEvent,
 } from '../../../src/adapters/binance';
 import { runAccountStateFixtures } from '../../../src/conformance';
@@ -254,6 +262,86 @@ describe('Binance adapter normalizers', () => {
     );
   });
 
+  it('routes Binance private events into row-level workflow hints', () => {
+    expect(
+      routeBinanceUsdmPrivateEvent(
+        orderTradeUpdate({
+          executionType: 'TRADE',
+          orderStatus: 'FILLED',
+          lastFilledQuantity: 0.1,
+          orderFilledAccumulatedQuantity: 0.1,
+        }),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'terminalOrder',
+        eventType: 'ORDER_TRADE_UPDATE',
+        customOrderId: 'client-1001',
+        orderStatus: 'FILLED',
+        reason: 'filled',
+      }),
+      expect.objectContaining({
+        kind: 'executionFill',
+        eventType: 'ORDER_TRADE_UPDATE',
+        customOrderId: 'client-1001',
+        exchangeTradeId: '9001',
+        executionType: 'TRADE',
+      }),
+    ]);
+
+    expect(routeBinanceUsdmPrivateEvent(algoUpdate({ algoStatus: 'NEW' }))).toEqual(
+      [
+        expect.objectContaining({
+          kind: 'activeOrder',
+          eventType: 'ALGO_UPDATE',
+          customTriggerOrderId: 'algo-client-1',
+          exchangeTriggerOrderId: '2001',
+          orderStatus: 'NEW',
+        }),
+      ],
+    );
+
+    expect(
+      routeBinanceUsdmPrivateEvent(algoUpdate({ algoStatus: 'TRIGGERED' })),
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'terminalOrder',
+        eventType: 'ALGO_UPDATE',
+        reason: 'triggered',
+      }),
+    ]);
+
+    expect(routeBinanceUsdmPrivateEvent(accountUpdate())).toEqual([
+      expect.objectContaining({
+        kind: 'position',
+        eventType: 'ACCOUNT_UPDATE',
+        symbol: 'BTCUSDT',
+      }),
+    ]);
+  });
+
+  it('exposes Binance terminal status classifiers and exact fingerprints', () => {
+    expect(isBinanceTerminalOrderStatus('EXPIRED_IN_MATCH')).toBe(true);
+    expect(isBinanceTerminalOrderStatus('PARTIALLY_FILLED')).toBe(false);
+    expect(isBinanceTerminalAlgoStatus('TRIGGERED')).toBe(true);
+    expect(isBinanceTerminalAlgoStatus('TRIGGERING')).toBe(false);
+    expect(binance.ws.isTerminalOrderStatus('FILLED')).toBe(true);
+    expect(binance.ws.isTerminalAlgoStatus('FINISHED')).toBe(true);
+
+    const event = orderTradeUpdate();
+    expect(fingerprintBinanceUsdmPrivateEvent(event)).toBe(
+      binance.ws.fingerprintPrivateEvent({
+        order: { ...event.order },
+        eventTime: event.eventTime,
+        eventType: event.eventType,
+        streamName: event.streamName,
+        transactionTime: event.transactionTime,
+        wsKey: event.wsKey,
+        wsMarket: event.wsMarket,
+      }),
+    );
+  });
+
   it('normalizes USD-M REST account assets into balance snapshots', () => {
     const asset = usdmAccountAsset();
 
@@ -452,6 +540,29 @@ describe('Binance adapter normalizers', () => {
           code: -2027,
           msg: 'Exceeded the maximum allowable position at current leverage.',
         },
+      }),
+    ).toBe(true);
+    expect(
+      isBinanceInsufficientMarginError({
+        body: { code: -2019, msg: 'Margin is insufficient.' },
+      }),
+    ).toBe(true);
+    expect(
+      isBinanceReduceOnlyRejectedError({
+        code: -2022,
+        msg: 'ReduceOnly Order is rejected.',
+      }),
+    ).toBe(true);
+    expect(
+      isBinanceMinNotionalError({
+        exchangeCode: -5029,
+        exchangeMessage: "Order's notional must be no smaller than 5.",
+      }),
+    ).toBe(true);
+    expect(
+      isBinanceDuplicateClientOrderIdError({
+        code: -4116,
+        msg: 'ClientOrderId is duplicated.',
       }),
     ).toBe(true);
   });

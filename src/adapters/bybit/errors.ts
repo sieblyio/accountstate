@@ -35,6 +35,23 @@ export function isBybitDuplicateOrderIdError(error: unknown): boolean {
 }
 
 /**
+ * Bybit V5 uses 110017 for reduce-only quantity failures such as attempting a
+ * reduce-only order while the matching position is already flat.
+ */
+export function isBybitOrderQuantityWouldBeZeroError(
+  error: unknown,
+): boolean {
+  return isBybitApiErrorCode(error, 110017);
+}
+
+/**
+ * Return true for successful Bybit REST business responses.
+ */
+export function isBybitBusinessSuccess(response: unknown): boolean {
+  return isBybitApiErrorCode(response, 0);
+}
+
+/**
  * Convert a Bybit SDK/REST error or nonzero retCode response into the store's
  * submission-error shape.
  */

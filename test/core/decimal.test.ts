@@ -12,12 +12,25 @@ describe('decimal conversion', () => {
     expect(toDecimalString(1.23e21)).toBe('1230000000000000000000');
   });
 
+  it('expands exchange decimal strings in scientific notation into plain decimals', () => {
+    expect(toDecimalString('7.199E-5')).toBe('0.00007199');
+    expect(toDecimalString('1.2300e+2')).toBe('123.00');
+    expect(toDecimalString('-4.5E-3')).toBe('-0.0045');
+    expect(toDecimalString('0e+8')).toBe('0');
+  });
+
   it('rejects non-finite numeric values', () => {
     expect(() => toDecimalString(Number.POSITIVE_INFINITY)).toThrow(
       'Invalid decimal number: Infinity',
     );
     expect(() => toDecimalString(Number.NaN)).toThrow(
       'Invalid decimal number: NaN',
+    );
+  });
+
+  it('rejects decimal strings with unreasonable exponents', () => {
+    expect(() => toDecimalString('1e10001')).toThrow(
+      'Invalid decimal string: 1e10001',
     );
   });
 });

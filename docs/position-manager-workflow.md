@@ -72,29 +72,36 @@ type WorkKey = {
 ```
 
 The queue belongs to your application, not to `accountstate`. Adapter
-`ws.summarizePrivateEvent(event)` helpers can help you find affected symbols
-and subjects before or after ingesting the event, but they do not schedule
-work.
+`ws.routePrivateEvent(event)` helpers can help you route affected symbols,
+orders, fills, positions, and balances after ingesting the event, but they do
+not schedule work. `ws.summarizePrivateEvent(event)` remains useful for logs
+and coarse metrics.
 
 ## Private Event Routing
 
 Always feed private account events into `accountstate` immediately. Strategy
 scheduling is a separate application decision.
 
-Use a routing table like this for the simple lane:
+Use `ws.routePrivateEvent(event)` where the adapter provides it, then route by
+decision kind:
 
-| Event kind | Store action | Workflow action |
+| Route kind | Store action | Workflow action |
 | --- | --- | --- |
-| position/account update | ingest immediately | schedule a bounded trailing symbol-side reconcile |
-| own order/algo confirmation | ingest immediately | clear pending confirmation and reconcile immediately |
-| order/algo/fill echo without pending confirmation | ingest immediately | state-only by default |
-| wallet/balance-only update | ingest immediately | state-only unless your strategy depends on balances |
+| `activeOrder` | ingest immediately | clear pending active-order confirmation and reconcile immediately |
+| `terminalOrder` | ingest immediately | clear pending/context for that order and re-read state |
+| `executionFill` | ingest immediately | mark the affected symbol/side dirty; do not treat as open-order confirmation |
+| `position` | ingest immediately | schedule a bounded trailing symbol-side reconcile |
+| `balance` | ingest immediately | state-only unless your strategy depends on balances |
 | reconnect, disconnect, or known stream gap | record stream health | satisfy `stateChecks` through REST before live mutation |
 
 Do not debounce accountstate ingestion. If you debounce anything, debounce only
 the application workflow scheduling for externally triggered position bursts.
 Own-order confirmations should bypass that delay because they unblock serialized
 workflows.
+
+If you use Binance with the Binance SDK, feed only one private event shape into
+accountstate. The adapter expects formatted private events; do not also feed
+raw one-letter events from another emitter for the same stream.
 
 ## Phase Gating
 
@@ -133,6 +140,11 @@ After an accepted place/cancel/amend:
 If confirmation times out, mark the relevant state for checking and refresh it
 through REST. Do not keep submitting based on an uncertain order state.
 
+Private confirmation can arrive before the REST submit promise resolves. Buffer
+that application-owned observation by custom order ID or slot key, then consume
+it when REST acceptance returns. Do not create a stale pending timeout for an
+order that the private stream already confirmed.
+
 Adapter subpaths expose small semantic error helpers for common exchange
 outcomes. Use those helpers to decide whether an observed cancel/amend failure
 is an idempotent no-op, a stale-target race, or a real recovery boundary, then
@@ -141,6 +153,14 @@ can mean a cancel target is already absent, Binance `-5027` can mean an amend
 was already converged, and Bybit `retCode: 10001` with `order not modified`
 can be an amend no-op. Those helpers do not submit orders or update state by
 themselves.
+
+Deterministic no-order-created rejections should usually be handled as
+application blocked/cooldown state, not as accountstate uncertainty. Examples
+include Binance insufficient margin or position-limit blocks, Binance
+close-position requests rejected because the position is already gone, and
+Bybit reduce-only quantity failures while flat. Use `recordOrderRejected()` for
+paths where you want open-order state marked uncertain or a provisional row
+removed.
 
 ## REST Boundaries
 

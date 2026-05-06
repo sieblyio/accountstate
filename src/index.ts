@@ -12,6 +12,8 @@ export {
   isTrustedOpenOrder,
 } from './core/exchangeAccount.js';
 
+export { createAccountScopeKey } from './core/utils.js';
+
 export type {
   AccountId,
   AccountChangeSubject,

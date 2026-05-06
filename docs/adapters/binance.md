@@ -32,6 +32,9 @@ preserves exchange decimal strings exactly.
 WebSocket formatting is separate. With `beautify: true`, the Binance SDK still
 emits raw events on `message` and emits formatted events on `formattedMessage`.
 Pass the formatted private WebSocket events to `binance.ws.privateEvent()`.
+Pick one private event shape for accountstate. Do not feed both raw one-letter
+events and formatted events for the same Binance stream, or your application
+will process the same exchange fact twice.
 
 ## Basic Flow
 
@@ -62,6 +65,10 @@ state.ingest(
 
 ws.on('formattedMessage', (event) => {
   state.ingest(binance.ws.privateEvent(scope, event));
+
+  for (const route of binance.ws.routePrivateEvent(event)) {
+    queueFromRoute(route);
+  }
 });
 ```
 
@@ -92,7 +99,11 @@ REST helpers:
 Private WebSocket helpers:
 
 - `binance.ws.privateEvent(scope, event)`
+- `binance.ws.routePrivateEvent(event)`
 - `binance.ws.summarizePrivateEvent(event)`
+- `binance.ws.fingerprintPrivateEvent(event)`
+- `binance.ws.isTerminalOrderStatus(status)`
+- `binance.ws.isTerminalAlgoStatus(status)`
 - `binance.ws.spotExecutionReport(scope, event)`
 
 `privateEvent()` handles Binance USD-M:
@@ -102,10 +113,19 @@ Private WebSocket helpers:
 - `ALGO_UPDATE`
 - `TRADE_LITE`
 
+`routePrivateEvent()` returns row-level decisions for application-owned
+scheduling. It distinguishes active order rows, terminal/non-active order rows,
+fill evidence, position updates, and balance updates. It does not apply state,
+submit orders, schedule work, or decide whether REST recovery is needed.
+
 `summarizePrivateEvent()` returns a pure summary for logging or event
 coalescing: affected subjects, symbols, assets, order IDs, trigger-order IDs,
-position sides, and exchange statuses. It does not apply state, schedule work,
-or decide whether REST recovery is needed.
+position sides, and exchange statuses. Use it for logs and coarse metrics, not
+as the safest primitive for pending-confirmation logic.
+
+`fingerprintPrivateEvent()` returns an exact-payload fingerprint for replay
+protection outside the reducer. It does not collapse raw and formatted variants
+of the same Binance event.
 
 For USD-M REST balances, pass `getAccountInformationV3().assets` to
 `binance.rest.accountBalances(scope, rows)`. `ACCOUNT_UPDATE` stream events
@@ -148,6 +168,48 @@ When a Binance USD-M Algo order triggers, Binance can emit:
 The adapter keeps those rows separate. A triggered Algo update removes only the
 Algo row. The generated regular order remains governed by its regular order
 updates and fills.
+
+## Private Event Routing
+
+Use this order when processing private WebSocket events:
+
+```typescript
+state.ingest(binance.ws.privateEvent(scope, event));
+
+for (const route of binance.ws.routePrivateEvent(event)) {
+  switch (route.kind) {
+    case 'activeOrder':
+      markOrderConfirmed(route);
+      break;
+    case 'terminalOrder':
+      markOrderTerminal(route);
+      break;
+    case 'executionFill':
+      markSymbolDirty(route.symbol);
+      break;
+    case 'position':
+      markSymbolDirty(route.symbol);
+      break;
+    case 'balance':
+      markBalanceDirty(route.asset);
+      break;
+  }
+}
+```
+
+The route helper follows Binance USD-M event semantics:
+
+- `TRADE_LITE` is fill evidence only.
+- `ORDER_TRADE_UPDATE` may produce an order route and a fill route when it
+  carries trade evidence.
+- `ALGO_UPDATE NEW` / `TRIGGERING` is an active trigger-order route.
+- `ALGO_UPDATE TRIGGERED` / `FINISHED` / `CANCELED` / `EXPIRED` / `REJECTED`
+  is terminal or non-active for the Algo row.
+- `ACCOUNT_UPDATE` produces position and balance routes.
+
+Terminal/non-active order routes are not active open-order confirmations. They
+are evidence that pending/order context should be cleared or checked by the
+application.
 
 ## Close-Position Orders
 
@@ -222,6 +284,16 @@ The subpath also exports narrow semantic checks for common Binance outcomes:
   matching open position, such as `-4509`
 - `isBinanceRiskLimitOrLeverageError()` for max leverage or position-limit
   failures such as `-2027`
+- `isBinanceInsufficientMarginError()` for margin failures such as `-2019`
+- `isBinanceReduceOnlyRejectedError()` for reduce-only rejection `-2022`
+- `isBinanceMinNotionalError()` for minimum-notional failures such as `-5029`
+- `isBinanceDuplicateClientOrderIdError()` for reused client order IDs such as
+  `-4116`
+
+Deterministic no-order-created rejections, such as insufficient margin or
+position-limit blocks, usually belong in application blocked/cooldown state.
+Do not automatically call `recordOrderRejected()` for those paths unless you
+want accountstate to mark open-order state uncertain.
 
 ## Fixtures
 

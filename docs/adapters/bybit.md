@@ -41,6 +41,10 @@ state.ingest(bybit.rest.walletBalances(scope, walletResponse.result.list));
 
 ws.on('update', (event) => {
   state.ingest(bybit.ws.privateEvent(scope, event));
+
+  for (const route of bybit.ws.routePrivateEvent(event)) {
+    queueFromRoute(route);
+  }
 });
 
 const account = state.getAccount(scope);
@@ -72,17 +76,70 @@ REST helpers:
 Private WebSocket helpers:
 
 - `bybit.ws.privateEvent(scope, event)`
+- `bybit.ws.routePrivateEvent(event)`
 - `bybit.ws.summarizePrivateEvent(event)`
+- `bybit.ws.fingerprintPrivateEvent(event)`
+- `bybit.ws.isTerminalOrderStatus(status)`
 
 `privateEvent()` handles Bybit V5 private `position`, `order`, `execution`, and
 `wallet` events. REST `activeOrders()` is intended for the unfiltered active
 orders response, which can include regular reduce-only orders and conditional
 stop orders together.
 
+`routePrivateEvent()` returns row-level decisions for application-owned
+scheduling. It distinguishes active order rows, terminal/non-active order rows,
+fill evidence, position updates, and balance updates. It does not apply state,
+submit orders, schedule work, or decide whether REST recovery is needed.
+
 `summarizePrivateEvent()` returns a pure summary for logging or event
 coalescing: affected subjects, symbols, assets, order IDs, position sides, and
-exchange statuses. It does not apply state, schedule work, or decide whether
-REST recovery is needed.
+exchange statuses. Use it for logs and coarse metrics, not as the safest
+primitive for pending-confirmation logic.
+
+`fingerprintPrivateEvent()` returns an exact-payload fingerprint for replay
+protection outside the reducer.
+
+## Private Event Routing
+
+Use this order when processing private WebSocket events:
+
+```typescript
+state.ingest(bybit.ws.privateEvent(scope, event));
+
+for (const route of bybit.ws.routePrivateEvent(event)) {
+  switch (route.kind) {
+    case 'activeOrder':
+      markOrderConfirmed(route);
+      break;
+    case 'terminalOrder':
+      markOrderTerminal(route);
+      break;
+    case 'executionFill':
+      markSymbolDirty(route.symbol);
+      break;
+    case 'position':
+      markSymbolDirty(route.symbol);
+      break;
+    case 'balance':
+      markBalanceDirty(route.asset);
+      break;
+  }
+}
+```
+
+The route helper follows Bybit V5 private stream semantics:
+
+- `order` rows with active statuses such as `New`, `PartiallyFilled`, or
+  `Untriggered` produce active order routes.
+- `order` rows with terminal/non-active statuses such as `Filled`,
+  `Cancelled`, `Deactivated`, `PartiallyFilledCanceled`, `Rejected`,
+  `Expired`, or `Triggered` produce terminal order routes.
+- `execution` rows with `execType: "Trade"` produce fill routes.
+- `position` and `wallet` topics produce position and balance routes.
+
+Terminal order routes and execution routes are not active open-order
+confirmations. They should not unlock later workflow phases as if an open order
+were resting on the exchange.
 
 ## Order Identity
 
@@ -134,6 +191,11 @@ returned symbol, so unrelated positions are not cleared accidentally.
 
 Bybit private WebSocket zero-size position rows are also normalized into close
 updates.
+
+Close-all conditional market stop orders may echo `qty: "0"`, `leavesQty: "0"`,
+`price: "0"`, `closeOnTrigger: true`, and `reduceOnly: true`. Pass those rows
+into the adapter as-is. They are valid Bybit close-all stop rows, not missing
+order data.
 
 ## Filtered REST Calls
 
@@ -197,6 +259,17 @@ The subpath also exports narrow semantic checks for common Bybit outcomes:
   `retCode: 10001` with `retMsg` like `order not modified`
 - `isBybitDuplicateOrderIdError()` for reused `orderLinkId` responses such as
   `retCode: 110072`
+- `isBybitOrderQuantityWouldBeZeroError()` for reduce-only quantity failures
+  such as `retCode: 110017`
+- `isBybitBusinessSuccess()` for REST business responses with `retCode: 0`
+
+`isBybitAmendNoopError()` intentionally checks both code and message.
+`retCode: 10001` with `order not modified` is an amend no-op; the same code
+with a message such as `Qty invalid` is not.
+
+Deterministic no-order-created rejections usually belong in application
+blocked/cooldown state. Do not automatically call `recordOrderRejected()` for
+those paths unless you want accountstate to mark open-order state uncertain.
 
 ## Fixtures
 

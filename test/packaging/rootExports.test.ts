@@ -54,6 +54,7 @@ describe('root package exports', () => {
     expect(typeof sourceRoot.hasOpenOrderIdentity).toBe('function');
     expect(typeof sourceRoot.filterOpenOrdersByTrust).toBe('function');
     expect(typeof sourceRoot.isTrustedOpenOrder).toBe('function');
+    expect(typeof sourceRoot.createAccountScopeKey).toBe('function');
   });
 
   it('keeps reducer/fact types off the root autocomplete surface', () => {
@@ -64,6 +65,7 @@ describe('root package exports', () => {
     expect(sourceCore.ExchangeAccountStateStore).toBe(
       ExchangeAccountStateStore,
     );
+    expect(typeof sourceCore.createAccountScopeKey).toBe('function');
   });
 
   it('keeps the package export map explicit', () => {
@@ -112,6 +114,7 @@ describe('root package exports', () => {
       sourceRoot.ENGINE_POSITION_SIDE,
     );
     expect(typeof builtRoot.getUnrealisedPnl).toBe('function');
+    expect(typeof builtRoot.createAccountScopeKey).toBe('function');
   });
 
   it('loads the package root in a fixture project without Binance installed', () => {
@@ -371,11 +374,19 @@ describe('root package exports', () => {
     expect(typeof builtBinance.binance.ws.summarizePrivateEvent).toBe(
       'function',
     );
+    expect(typeof builtBinance.binance.ws.routePrivateEvent).toBe('function');
+    expect(typeof builtBinance.binance.ws.fingerprintPrivateEvent).toBe(
+      'function',
+    );
+    expect(typeof builtBinance.isBinanceTerminalOrderStatus).toBe('function');
     expect(typeof builtBinance.binance.submission.cancelRejected).toBe(
       'function',
     );
     expect(typeof builtBinance.isBinanceNoNeedToModifyError).toBe('function');
     expect(typeof builtBinance.isBinancePositionUnavailableError).toBe(
+      'function',
+    );
+    expect(typeof builtBinance.isBinanceInsufficientMarginError).toBe(
       'function',
     );
   });
@@ -389,9 +400,17 @@ describe('root package exports', () => {
     expect(typeof builtBybit.summarizeBybitV5PrivateEvent).toBe('function');
     expect(typeof builtBybit.bybit.rest.positions).toBe('function');
     expect(typeof builtBybit.bybit.ws.summarizePrivateEvent).toBe('function');
+    expect(typeof builtBybit.bybit.ws.routePrivateEvent).toBe('function');
+    expect(typeof builtBybit.bybit.ws.fingerprintPrivateEvent).toBe(
+      'function',
+    );
+    expect(typeof builtBybit.isBybitTerminalOrderStatus).toBe('function');
     expect(typeof builtBybit.bybit.submission.cancelRejected).toBe('function');
     expect(typeof builtBybit.isBybitAmendNoopError).toBe('function');
     expect(typeof builtBybit.isBybitDuplicateOrderIdError).toBe('function');
+    expect(typeof builtBybit.isBybitOrderQuantityWouldBeZeroError).toBe(
+      'function',
+    );
   });
 
   it('emits no runtime exchange SDK import in package root or adapter JS', () => {

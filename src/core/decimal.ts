@@ -1,12 +1,11 @@
 import type { DecimalString } from './types.js';
 
 const DECIMAL_STRING_PATTERN = /^[+-]?(?:\d+|\d*\.\d+)$/;
+const SCIENTIFIC_DECIMAL_STRING_PATTERN =
+  /^[+-]?(?:\d+|\d*\.\d+)[eE][+-]?\d+$/;
 
 /**
- * Check for plain decimal notation at the exchange-state boundary.
- *
- * Scientific notation is intentionally rejected so adapters preserve the exact
- * decimal strings they received or intentionally normalized.
+ * Check for plain decimal notation at the normalized exchange-state boundary.
  */
 export function isDecimalString(value: string): value is DecimalString {
   return DECIMAL_STRING_PATTERN.test(value);
@@ -27,11 +26,14 @@ export function assertDecimalString(value: string): DecimalString {
  * Convert simple string/number inputs into the normalized decimal-string type.
  *
  * Callers that care about request-grade precision should pass strings rather
- * than JavaScript numbers.
+ * than JavaScript numbers. Exchange adapter inputs may use scientific notation;
+ * normalized account state always exposes plain decimal strings.
  */
 export function toDecimalString(value: string | number): DecimalString {
   const stringValue =
-    typeof value === 'number' ? numberToPlainDecimalString(value) : value;
+    typeof value === 'number'
+      ? numberToPlainDecimalString(value)
+      : stringToPlainDecimalString(value);
   return assertDecimalString(stringValue);
 }
 
@@ -45,8 +47,25 @@ function numberToPlainDecimalString(value: number): string {
     return raw;
   }
 
-  const [coefficient, exponentText] = raw.toLowerCase().split('e');
+  return scientificDecimalStringToPlain(raw);
+}
+
+function stringToPlainDecimalString(value: string): string {
+  if (!SCIENTIFIC_DECIMAL_STRING_PATTERN.test(value)) {
+    return value;
+  }
+
+  return scientificDecimalStringToPlain(value);
+}
+
+function scientificDecimalStringToPlain(value: string): string {
+  const [coefficient, exponentText] = value.toLowerCase().split('e');
   const exponent = Number(exponentText);
+
+  if (!Number.isInteger(exponent) || Math.abs(exponent) > 10_000) {
+    throw new Error(`Invalid decimal string: ${value}`);
+  }
+
   const sign = coefficient.startsWith('-') ? '-' : '';
   const unsignedCoefficient = coefficient.replace(/^[+-]/, '');
   const [integerPart, fractionalPart = ''] = unsignedCoefficient.split('.');

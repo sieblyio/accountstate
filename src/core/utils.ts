@@ -1,9 +1,9 @@
 import type { AccountScope } from './types.js';
 
 /**
- * Build the internal storage key for one account/product/environment scope.
+ * Build a stable key for one account/product/environment scope.
  */
-export function createScopeKey(scope: AccountScope): string {
+export function createAccountScopeKey(scope: AccountScope): string {
   return [
     scope.exchange,
     scope.accountId,
@@ -13,10 +13,17 @@ export function createScopeKey(scope: AccountScope): string {
 }
 
 /**
+ * Build the internal storage key for one account/product/environment scope.
+ */
+export function createScopeKey(scope: AccountScope): string {
+  return createAccountScopeKey(scope);
+}
+
+/**
  * Compare account scopes by the same fields used for reducer storage.
  */
 export function isSameScope(a: AccountScope, b: AccountScope): boolean {
-  return createScopeKey(a) === createScopeKey(b);
+  return createAccountScopeKey(a) === createAccountScopeKey(b);
 }
 
 /**

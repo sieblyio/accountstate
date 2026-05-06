@@ -175,6 +175,10 @@ state.ingest(binance.rest.accountBalances(scope, rawAccountAssetRows));
 state.ingest(binance.rest.accountTrades(scope, rawTradeRows));
 state.ingest(binance.ws.privateEvent(scope, rawPrivateWebSocketEvent));
 
+for (const route of binance.ws.routePrivateEvent(rawPrivateWebSocketEvent)) {
+  queueFromRoute(route);
+}
+
 const account = state.getAccount(scope);
 ```
 
@@ -187,6 +191,10 @@ state.ingest(bybit.rest.positions(scope, positionResponse.result.list));
 state.ingest(bybit.rest.activeOrders(scope, activeOrdersResponse.result.list));
 state.ingest(bybit.rest.walletBalances(scope, walletResponse.result.list));
 state.ingest(bybit.ws.privateEvent(scope, rawPrivateEvent));
+
+for (const route of bybit.ws.routePrivateEvent(rawPrivateEvent)) {
+  queueFromRoute(route);
+}
 ```
 
 For Binance USD-M private WebSocket events, `binance.ws.privateEvent()` handles
@@ -195,10 +203,16 @@ updates, Algo updates, and lightweight trade events. When an Algo order
 triggers, Binance emits normal order updates for the generated order; the
 adapter keeps that regular order separate from the terminal Algo row.
 
-Adapters also expose `ws.summarizePrivateEvent(event)` when you want a small
-pure summary for logging or event coalescing before ingesting the event. It
-returns affected subjects, symbols, assets, and order IDs, but it does not
-schedule work or make recovery decisions.
+Adapters also expose `ws.routePrivateEvent(event)` for row-level private
+WebSocket routing and `ws.summarizePrivateEvent(event)` for small logging
+summaries. Route decisions distinguish active order rows, terminal/non-active
+order rows, execution fills, position updates, and balance updates. They do not
+schedule work or make recovery decisions; your application chooses how to react.
+
+For Binance, pass either the SDK-formatted private events or the raw one-letter
+events through your own mapper, but do not feed both shapes for the same stream
+into accountstate. The Binance adapter helpers are designed for the SDK
+formatted private events emitted on `formattedMessage`.
 
 Adapters are pure: they do not create REST clients, WebSocket clients, timers,
 retries, API keys, or stream sessions. They only accept objects you already
@@ -293,6 +307,8 @@ if (violations.some((violation) => violation.severity === 'error')) {
 ## Docs
 
 - [Exchange account store](./docs/exchange-account-state-store.md)
+- [Private event routing](./docs/private-event-routing.md)
+- [Pending confirmation lifecycle](./docs/pending-confirmation-lifecycle.md)
 - [Position manager workflow pattern](./docs/position-manager-workflow.md)
 - [Binance adapter](./docs/adapters/binance.md)
 - [Bybit adapter](./docs/adapters/bybit.md)
@@ -365,8 +381,8 @@ The modern exchange-account examples demonstrate:
 - Loading current account state from REST.
 - Applying private WebSocket account events.
 - Recording reconnects and checking stale state through REST.
-- Querying one current account view for planner/UI decisions.
-- Showing where observed submit/cancel outcomes enter the store.
+- Querying and logging one current account view while the private stream keeps
+  the store up to date.
 
 <!-- template_contributions -->
 

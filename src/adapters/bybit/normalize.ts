@@ -1,4 +1,5 @@
 import { toDecimalString } from '../../core/decimal.js';
+import { fingerprintExactPayload } from '../../core/fingerprint.js';
 import type { AccountFact, RestSnapshotFact } from '../../core/facts.js';
 import type {
   AccountScope,
@@ -13,6 +14,7 @@ import type {
   SnapshotSubject,
   SnapshotCoverage,
   SnapshotMode,
+  StrategySide,
   TerminalReason,
   TimestampMs,
 } from '../../core/types.js';
@@ -61,6 +63,64 @@ export interface BybitPrivateEventSummary {
   executionTypes: string[];
   eventTimeMs?: TimestampMs;
 }
+
+export type BybitPrivateEventRouteDecision =
+  | {
+      kind: 'activeOrder';
+      source: 'ws';
+      topic: 'order';
+      symbol: string;
+      customOrderId?: string;
+      exchangeOrderId?: string;
+      orderStatus: string;
+      exchangePositionSide?: string;
+      strategySide?: OrderStrategySide;
+      positionIdx?: 0 | 1 | 2;
+      raw: unknown;
+    }
+  | {
+      kind: 'terminalOrder';
+      source: 'ws';
+      topic: 'order';
+      symbol: string;
+      customOrderId?: string;
+      exchangeOrderId?: string;
+      orderStatus: string;
+      reason: TerminalReason;
+      exchangePositionSide?: string;
+      strategySide?: OrderStrategySide;
+      positionIdx?: 0 | 1 | 2;
+      raw: unknown;
+    }
+  | {
+      kind: 'executionFill';
+      source: 'ws';
+      topic: 'execution';
+      symbol: string;
+      customOrderId?: string;
+      exchangeOrderId?: string;
+      exchangeTradeId?: string;
+      executionType?: string;
+      positionIdx?: 0 | 1 | 2;
+      raw: unknown;
+    }
+  | {
+      kind: 'position';
+      source: 'ws';
+      topic: 'position';
+      symbol: string;
+      exchangePositionSide?: string;
+      strategySide?: StrategySide;
+      positionIdx?: 0 | 1 | 2;
+      raw: unknown;
+    }
+  | {
+      kind: 'balance';
+      source: 'ws';
+      topic: 'wallet';
+      asset?: string;
+      raw: unknown;
+    };
 
 export interface BybitPositionIdxInput {
   raw?: unknown;
@@ -375,6 +435,124 @@ export function summarizeBybitV5PrivateEvent(
   }
 }
 
+/**
+ * Route one Bybit V5 private WebSocket event into row-level workflow hints.
+ * Ingest `ws.privateEvent()` into the store first, then use these pure
+ * decisions to schedule app-owned work. Execution rows are fill evidence and
+ * terminal order rows are not active open-order confirmations.
+ */
+export function routeBybitV5PrivateEvent(
+  event: BybitV5PrivateEvent,
+): BybitPrivateEventRouteDecision[] {
+  switch (event.topic) {
+    case 'position':
+      return event.data.map(
+        (position): BybitPrivateEventRouteDecision => ({
+          kind: 'position',
+          source: 'ws',
+          topic: 'position',
+          symbol: position.symbol,
+          exchangePositionSide: exchangePositionSideFromPositionIdx(
+            position.positionIdx,
+          ),
+          strategySide: strategySideFromPosition(position),
+          positionIdx: normalizePositionIdx(position.positionIdx),
+          raw: position,
+        }),
+      );
+    case 'order':
+      return event.data.map((order): BybitPrivateEventRouteDecision => {
+        const exchangePositionSide = exchangePositionSideFromPositionIdx(
+          order.positionIdx,
+        );
+        const strategySide = orderStrategySideFromPositionIdx(
+          order.positionIdx,
+        );
+        const positionIdx = normalizePositionIdx(order.positionIdx);
+
+        if (isBybitTerminalOrderStatus(order.orderStatus)) {
+          return {
+            kind: 'terminalOrder',
+            source: 'ws',
+            topic: 'order',
+            symbol: order.symbol,
+            exchangeOrderId: nonEmptyString(order.orderId),
+            customOrderId: nonEmptyString(order.orderLinkId),
+            orderStatus: order.orderStatus,
+            reason: terminalReasonFromBybitStatus(order.orderStatus),
+            exchangePositionSide,
+            strategySide,
+            positionIdx,
+            raw: order,
+          };
+        }
+
+        return {
+          kind: 'activeOrder',
+          source: 'ws',
+          topic: 'order',
+          symbol: order.symbol,
+          exchangeOrderId: nonEmptyString(order.orderId),
+          customOrderId: nonEmptyString(order.orderLinkId),
+          orderStatus: order.orderStatus,
+          exchangePositionSide,
+          strategySide,
+          positionIdx,
+          raw: order,
+        };
+      });
+    case 'execution':
+      return event.data
+        .filter(isTradeExecution)
+        .map(
+          (execution): BybitPrivateEventRouteDecision => ({
+            kind: 'executionFill',
+            source: 'ws',
+            topic: 'execution',
+            symbol: execution.symbol,
+            exchangeOrderId: nonEmptyString(execution.orderId),
+            customOrderId: nonEmptyString(execution.orderLinkId),
+            exchangeTradeId: nonEmptyString(execution.execId),
+            executionType: execution.execType,
+            positionIdx: normalizePositionIdx(
+              readUnknown(execution, 'positionIdx'),
+            ),
+            raw: execution,
+          }),
+        );
+    case 'wallet':
+      return event.data.flatMap((wallet) =>
+        wallet.coin.map(
+          (coin): BybitPrivateEventRouteDecision => ({
+            kind: 'balance',
+            source: 'ws',
+            topic: 'wallet',
+            asset: coin.coin,
+            raw: coin,
+          }),
+        ),
+      );
+    default:
+      return [];
+  }
+}
+
+/**
+ * Return a stable exact-payload fingerprint for replay protection outside the
+ * reducer. It is not a semantic exchange event id.
+ */
+export function fingerprintBybitV5PrivateEvent(event: unknown): string {
+  return fingerprintExactPayload(event);
+}
+
+/**
+ * Return true when a Bybit order status should not be treated as an active
+ * open-order confirmation. `Triggered` is non-active for the stop-order row.
+ */
+export function isBybitTerminalOrderStatus(status: string): boolean {
+  return isTerminalBybitOrderStatus(status);
+}
+
 export const bybit = {
   rest: {
     positions(
@@ -452,6 +630,15 @@ export const bybit = {
     },
     summarizePrivateEvent(event: BybitV5PrivateEvent) {
       return summarizeBybitV5PrivateEvent(event);
+    },
+    routePrivateEvent(event: BybitV5PrivateEvent) {
+      return routeBybitV5PrivateEvent(event);
+    },
+    fingerprintPrivateEvent(event: unknown) {
+      return fingerprintBybitV5PrivateEvent(event);
+    },
+    isTerminalOrderStatus(status: string) {
+      return isBybitTerminalOrderStatus(status);
     },
   },
   submission: bybitSubmission,
@@ -591,6 +778,8 @@ function normalizeBybitOrderStatus(status: string): NormalizedOrderStatus {
     case 'Deactivated':
     case 'PartiallyFilledCanceled':
       return 'cancelled';
+    case 'Expired':
+      return 'expired';
     case 'Rejected':
       return 'rejected';
     default:
@@ -604,6 +793,7 @@ function isTerminalBybitOrderStatus(status: string): boolean {
     status === 'Cancelled' ||
     status === 'Deactivated' ||
     status === 'PartiallyFilledCanceled' ||
+    status === 'Expired' ||
     status === 'Rejected' ||
     status === 'Triggered'
   );
@@ -619,6 +809,8 @@ function terminalReasonFromBybitStatus(status: string): TerminalReason {
     case 'Deactivated':
     case 'PartiallyFilledCanceled':
       return 'cancelled';
+    case 'Expired':
+      return 'expired';
     case 'Rejected':
       return 'rejected';
     default:
@@ -753,6 +945,10 @@ function readString(row: unknown, key: string): string | undefined {
   }
   const value = row[key];
   return typeof value === 'string' && value ? value : undefined;
+}
+
+function readUnknown(row: unknown, key: string): unknown {
+  return isRecord(row) ? row[key] : undefined;
 }
 
 function nonEmptyString(value: string | undefined): string | undefined {
