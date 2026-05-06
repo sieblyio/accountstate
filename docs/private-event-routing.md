@@ -29,6 +29,9 @@ decisions. A single private event can contain rows that mean different things:
 
 `routePrivateEvent()` keeps those meanings separate.
 
+For app-level fixtures that prove routing decisions are handled correctly, see
+[Position manager conformance pattern](./conformance-position-manager.md).
+
 ## Route Kinds
 
 Common route kinds:

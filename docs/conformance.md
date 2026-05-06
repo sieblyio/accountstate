@@ -6,6 +6,11 @@ compare the resulting account state with expected output.
 
 They are not required for normal application usage.
 
+These fixtures cover the account-state reducer boundary: adapter/store facts in,
+normalized account state out. For application workflow tests around pending
+confirmations, private event routing, and live submission phases, see
+[Position manager conformance pattern](./conformance-position-manager.md).
+
 ## Run The Default Fixtures
 
 ```typescript
@@ -70,4 +75,3 @@ Use conformance fixtures when:
 - protecting subtle account-state rules during refactors
 
 For normal application code, use `ExchangeAccountStateStore` directly.
-

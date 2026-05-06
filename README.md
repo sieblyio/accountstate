@@ -310,6 +310,7 @@ if (violations.some((violation) => violation.severity === 'error')) {
 - [Private event routing](./docs/private-event-routing.md)
 - [Pending confirmation lifecycle](./docs/pending-confirmation-lifecycle.md)
 - [Position manager workflow pattern](./docs/position-manager-workflow.md)
+- [Position manager conformance pattern](./docs/conformance-position-manager.md)
 - [Binance adapter](./docs/adapters/binance.md)
 - [Bybit adapter](./docs/adapters/bybit.md)
 - [Binance USD-M integration playbook](./docs/integration-playbook-binance-usdm.md)

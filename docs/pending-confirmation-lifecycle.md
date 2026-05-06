@@ -4,6 +4,9 @@
 queues, order submission, retries, or workflow phases. Applications that submit
 orders should still follow a simple confirmation lifecycle around the store.
 
+For app-level fixtures that prove this lifecycle, see
+[Position manager conformance pattern](./conformance-position-manager.md).
+
 ## Normal Place Flow
 
 1. Create an opaque unique custom order ID.

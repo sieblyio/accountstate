@@ -9,7 +9,8 @@ timers, API keys, retry loops, subscriptions, or reconnect logic.
 For TP/SL/DCA managers and similar live workflows, read the
 [position manager workflow pattern](../position-manager-workflow.md). That page
 describes the symbol-side queueing and confirmation model that should live in
-your application, not in the adapter.
+your application, not in the adapter. For app-level tests around that workflow,
+see [Position manager conformance pattern](../conformance-position-manager.md).
 
 ## Install
 

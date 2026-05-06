@@ -54,6 +54,9 @@ Use this flow for live account-level workflows:
 The important rule is simple: the store answers "what does the account look
 like now?" The application decides "what should I do next?"
 
+For tests that prove an application follows this pattern, see
+[Position manager conformance pattern](./conformance-position-manager.md).
+
 ## Symbol-Side Queues
 
 Trading workflows should usually run per symbol/side instead of product-wide on
