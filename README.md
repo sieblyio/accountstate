@@ -73,16 +73,22 @@ npm install accountstate binance
 npm install accountstate bybit-api
 ```
 
+Looking for an adaptor we haven't added yet? Build your own, or open an issue to request it.
+
 ## Quick Start
 
 Most exchange applications already have two feeds into account state:
 
-- REST responses for the latest account snapshot.
+- REST API responses for the latest account snapshot.
 - Private WebSocket account events for live changes.
 
-`ExchangeAccountStateStore` is designed around that flow. Your app owns the
+In an ideal system these allow for a powerful event-driven architecture. Use the REST API to backfill initial state. Once your initial state is in sync, use the WebSocket stream to feed realtime updates into the account state store, passively keeping your local state in sync with exchange state.
+
+When your system needs to know anything about your account, be it balances, position or order states, don't block anything with a REST API query. Just read your local state store.
+
+The `ExchangeAccountStateStore` is designed around that flow. Your app owns the
 REST clients, WebSocket clients, API keys, reconnects, retries, and scheduling.
-`accountstate` only stores and reconciles account-state data you give it.
+`accountstate` only stores and reconciles account-state data you give it. This is your dumping ground and read model for account state.
 
 ```typescript
 import { ExchangeAccountStateStore, type AccountScope } from 'accountstate';
