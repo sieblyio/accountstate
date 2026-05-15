@@ -52,7 +52,7 @@ into it:
 The store is intentionally exchange-client agnostic. You can map exchange data
 yourself, or use an exchange-specific adapter to pass raw REST responses and
 private WebSocket events into the store as your client receives them.
-`accountstate` keeps the current account view coherent either way.
+`accountstate` keeps one current account view either way.
 
 ## Installation
 
@@ -80,7 +80,7 @@ Most exchange applications already have two feeds into account state:
 - REST responses for the latest account snapshot.
 - Private WebSocket account events for live changes.
 
-`ExchangeAccountStateStore` is designed around that shape. Your app owns the
+`ExchangeAccountStateStore` is designed around that flow. Your app owns the
 REST clients, WebSocket clients, API keys, reconnects, retries, and scheduling.
 `accountstate` only stores and reconciles account-state data you give it.
 
@@ -151,7 +151,7 @@ refreshed in the background unless you call
 ## Using Exchange Adapters
 
 Adapters let you pass raw exchange SDK/API objects directly into the store. The
-adapter normalizes the exchange-specific shape; `ingest()` applies the resulting
+adapter normalizes the exchange payload; `ingest()` applies the resulting
 updates in order. Your app can still map normalized rows itself, or use one of
 the exchange-specific adapters as the place where raw REST responses and private
 WebSocket events are passed in as your client receives them.
@@ -173,16 +173,16 @@ state.ingest(binance.rest.openOrders(scope, rawOpenOrderRows));
 state.ingest(binance.rest.openAlgoOrders(scope, rawOpenAlgoOrderRows));
 state.ingest(binance.rest.accountBalances(scope, rawAccountAssetRows));
 state.ingest(binance.rest.accountTrades(scope, rawTradeRows));
-state.ingest(binance.ws.privateEvent(scope, rawPrivateWebSocketEvent));
+state.ingest(binance.ws.privateEvent(scope, formattedPrivateEvent));
 
-for (const route of binance.ws.routePrivateEvent(rawPrivateWebSocketEvent)) {
-  queueFromRoute(route);
+for (const route of binance.ws.routePrivateEvent(formattedPrivateEvent)) {
+  handleRouteInYourApp(route);
 }
 
 const account = state.getAccount(scope);
 ```
 
-The Bybit V5 linear adapter follows the same shape:
+The Bybit V5 linear adapter follows the same flow:
 
 ```typescript
 import { bybit } from 'accountstate/bybit';
@@ -190,10 +190,10 @@ import { bybit } from 'accountstate/bybit';
 state.ingest(bybit.rest.positions(scope, positionResponse.result.list));
 state.ingest(bybit.rest.activeOrders(scope, activeOrdersResponse.result.list));
 state.ingest(bybit.rest.walletBalances(scope, walletResponse.result.list));
-state.ingest(bybit.ws.privateEvent(scope, rawPrivateEvent));
+state.ingest(bybit.ws.privateEvent(scope, privateEvent));
 
-for (const route of bybit.ws.routePrivateEvent(rawPrivateEvent)) {
-  queueFromRoute(route);
+for (const route of bybit.ws.routePrivateEvent(privateEvent)) {
+  handleRouteInYourApp(route);
 }
 ```
 
@@ -209,10 +209,13 @@ summaries. Route decisions distinguish active order rows, terminal/non-active
 order rows, execution fills, position updates, and balance updates. They do not
 schedule work or make recovery decisions; your application chooses how to react.
 
-For Binance, pass either the SDK-formatted private events or the raw one-letter
-events through your own mapper, but do not feed both shapes for the same stream
-into accountstate. The Binance adapter helpers are designed for the SDK
-formatted private events emitted on `formattedMessage`.
+For Binance, pass the SDK-formatted private events emitted on
+`formattedMessage`. Do not feed both formatted events and raw one-letter events
+for the same stream into accountstate, or your application will process the
+same exchange fact twice.
+
+`routePrivateEvent()` only returns facts about what changed. The example
+`handleRouteInYourApp()` call represents your own scheduling code.
 
 Adapters are pure: they do not create REST clients, WebSocket clients, timers,
 retries, API keys, or stream sessions. They only accept objects you already
@@ -266,9 +269,8 @@ For simple in-memory managers, prefer opaque unique exchange-visible custom IDs
 with only an app ownership prefix. Keep deterministic slot state in your own
 runtime registry, such as `customOrderId -> SlotKey`. If that registry is lost
 after restart or recovery, cancel app-owned orders by prefix/scope and rebuild
-from current hydrated positions. Parseable custom IDs are an advanced adoption
-lane; only use them with durable strategy state and restart tests proving that
-path.
+from current positions. Parseable custom IDs are an advanced option; only use
+them with durable strategy state and restart tests that cover that path.
 
 ## Advanced Usage
 
@@ -306,40 +308,39 @@ if (violations.some((violation) => violation.severity === 'error')) {
 
 ## Docs
 
-- [Exchange account store](./docs/exchange-account-state-store.md)
-- [Private event routing](./docs/private-event-routing.md)
-- [Pending confirmation lifecycle](./docs/pending-confirmation-lifecycle.md)
-- [Position manager workflow pattern](./docs/position-manager-workflow.md)
-- [Position manager conformance pattern](./docs/conformance-position-manager.md)
-- [Binance adapter](./docs/adapters/binance.md)
-- [Bybit adapter](./docs/adapters/bybit.md)
-- [Binance USD-M integration playbook](./docs/integration-playbook-binance-usdm.md)
-- [Conformance fixtures](./docs/conformance.md)
-- [Legacy lightweight store](./docs/legacy-account-state-store.md)
+Start with the [docs guide](./docs/README.md). It separates the main API,
+workflow patterns, exchange adapters, testing notes, and legacy API docs.
+
+For a new integration, read
+[Exchange account store](./docs/core/exchange-account-state-store.md), then the
+adapter page for your exchange:
+[Binance](./docs/adapters/binance.md) or [Bybit](./docs/adapters/bybit.md).
+For order-submitting workflows, add the
+[position manager workflow](./docs/workflows/position-manager.md).
 
 ## Legacy Lightweight Store
 
 The original `AccountStateStore` direct-cache API remains available from the
-package root for existing integrations. It has direct setters/getters for
-wallet balance, positions, orders, leverage, price updates, and per-symbol
-metadata.
+package root for backwards compatibility. Treat it as deprecated for new
+exchange integrations. It has direct setters/getters for wallet balance,
+positions, orders, leverage, price updates, and per-symbol metadata.
 
 For new REST-plus-WebSocket exchange integrations, prefer
 `ExchangeAccountStateStore`. See
-[Legacy lightweight store](./docs/legacy-account-state-store.md) when
+[Legacy lightweight store](./docs/legacy/account-state-store.md) when
 maintaining an older integration or using the metadata persistence helpers.
 
 ## Running Examples
 
 The recommended examples for new exchange integrations use
 `ExchangeAccountStateStore`. The exchange-account API is documented in
-[Exchange account store](./docs/exchange-account-state-store.md). For live
+[Exchange account store](./docs/core/exchange-account-state-store.md). For live
 TP/SL/DCA or position-management applications, start with the
-[position manager workflow pattern](./docs/position-manager-workflow.md).
+[position manager workflow](./docs/workflows/position-manager.md).
 Adapter docs are available for [Binance](./docs/adapters/binance.md) and
 [Bybit](./docs/adapters/bybit.md). The Binance startup, WebSocket, and reconnect
 workflow is documented in
-[Binance USD-M integration playbook](./docs/integration-playbook-binance-usdm.md).
+[Binance USD-M integration playbook](./docs/adapters/binance-usdm-playbook.md).
 
 ### Binance Futures
 

@@ -1,7 +1,8 @@
 # Legacy Lightweight AccountStateStore
 
 `AccountStateStore` is the original lightweight cache API. It remains available
-from the package root.
+from the package root for backwards compatibility, but it is deprecated for new
+exchange integrations.
 
 Use it when you want a simple in-memory object for balances, positions, orders,
 leverage, and custom per-symbol metadata, and you are comfortable applying all

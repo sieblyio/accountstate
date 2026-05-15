@@ -1,9 +1,9 @@
 # Position Manager Conformance Pattern
 
-This document describes application-level fixtures for position managers that
-use `ExchangeAccountStateStore`. These are not reducer fixtures and they are
-not part of accountstate core. They are a practical test pattern for apps that
-submit orders and need to prove their workflow is using the store safely.
+This document describes application fixtures for position managers that use
+`ExchangeAccountStateStore`. These are not reducer fixtures and they are not
+part of accountstate core. They are a practical test pattern for apps that
+submit orders and need to verify their workflow uses the store correctly.
 
 Use these fixtures when building TP/SL/DCA managers, liquidation guards,
 portfolio rebalancers, or any other app that reacts to private account events
@@ -31,7 +31,7 @@ accountstate.
 
 ## Fixture Shape
 
-Use any test runner. The important thing is the shape of the scenario:
+Use any test runner. The important thing is the scenario boundary:
 
 ```typescript
 type WorkflowFixture = {
@@ -71,7 +71,7 @@ type WorkflowExpectation = {
   activeOrderConfirmations?: string[];
   terminalOrderObservations?: string[];
   fillObservations?: string[];
-  dirtyScopes?: string[];
+  queuedScopes?: string[];
   pendingSlots?: string[];
   clearedPendingSlots?: string[];
   blockedSlots?: string[];
@@ -82,8 +82,8 @@ type WorkflowExpectation = {
 ```
 
 These are local app-test types, not package exports. Keep them small and adjust
-names to your app. The fixtures should prove behavior, not mirror every internal
-class name.
+names to your app. The fixtures should cover behavior, not mirror every
+internal class name.
 
 ## Harness Contract
 
@@ -114,17 +114,17 @@ Each submission outcome step should either:
 Do not call REST inside the harness after every healthy private event. REST
 should appear only as an explicit fixture step or as a response to `stateChecks`.
 
-## Required Fixtures
+## Core Fixtures
 
 ### Private Confirmation Before REST Acceptance
 
-Purpose: prove that a private WebSocket confirmation can arrive before the REST
+Purpose: check that a private WebSocket confirmation can arrive before the REST
 submit promise resolves.
 
 Scenario:
 
 1. App pre-registers a custom order ID and slot.
-2. Private event route arrives first, such as Binance `ALGO_UPDATE NEW`.
+2. Private event route arrives first.
 3. REST submit acceptance arrives after.
 
 Expected:
@@ -133,12 +133,12 @@ Expected:
 - REST acceptance does not create a stale pending timeout;
 - no duplicate place is submitted;
 - active exchange-confirmed state comes from REST or WebSocket account state,
-  not from a blind assumption that the REST promise order is first.
+  not from assuming the REST promise always resolves first.
 
 ### Terminal Order Is Not Active Confirmation
 
-Purpose: prove terminal/non-active order rows do not clear active-open-order
-confirmation as if an order is resting.
+Purpose: check that terminal/non-active order rows do not clear active-open-order
+confirmation for a resting order.
 
 Scenario:
 
@@ -150,70 +150,36 @@ Expected:
 - terminal observation is recorded;
 - pending/context for that order is cleared or marked for reconcile;
 - the workflow re-reads accountstate before deciding what to do next;
-- no dependent phase is unlocked as if an active order was confirmed.
+- no dependent phase treats the route as active order confirmation.
 
-Relevant statuses:
-
-- Binance regular: `FILLED`, `CANCELED`, `EXPIRED`, `EXPIRED_IN_MATCH`,
-  `REJECTED`
-- Binance Algo: `TRIGGERED`, `FINISHED`, `CANCELED`, `EXPIRED`, `REJECTED`
-- Bybit: `Filled`, `Cancelled`, `Deactivated`, `PartiallyFilledCanceled`,
-  `Rejected`, `Expired`, `Triggered`
+Use the adapter route helper to classify exchange statuses. The adapter docs
+list the exchange-specific mappings.
 
 ### Execution Fill Is Not Active Confirmation
 
-Purpose: prove fills do not masquerade as active order visibility.
+Purpose: check that fills are not treated as active order visibility.
 
 Scenario:
 
-1. Private execution/fill route arrives, such as Bybit `execution` with
-   `execType: "Trade"` or Binance `TRADE_LITE`.
+1. Private execution/fill route arrives with trade evidence.
 
 Expected:
 
 - fill is observed;
-- affected symbol/side is marked dirty;
+- affected symbol/side is queued for work;
 - pending active-order confirmation is not cleared by fill evidence alone;
 - no next DCA/protective phase runs solely because a fill route included an
   order ID.
 
-### Bybit Close-All Conditional Stop With Quantity Zero
+### Deterministic No-Order-Created Rejection
 
-Purpose: prove valid Bybit close-all stop rows are not treated as missing order
-data.
+Purpose: check that capacity or request-format blocks do not force accountstate
+into an uncertain state when the app knows no order was created.
 
 Scenario:
 
-1. REST or private order row contains a conditional market stop with:
-
-   - `orderStatus: "Untriggered"`
-   - `orderType: "Market"`
-   - `stopOrderType: "Stop"`
-   - `price: "0"`
-   - `qty: "0"`
-   - `leavesQty: "0"`
-   - `closeOnTrigger: true`
-   - `reduceOnly: true`
-
-Expected:
-
-- accountstate keeps the row as an active conditional open order;
-- route helper returns `activeOrder`;
-- comparator/workflow code does not submit a duplicate replacement because
-  `qty`, `leavesQty`, or `price` is zero.
-
-### Deterministic No-Order-Created Rejection
-
-Purpose: prove capacity or shape blocks do not poison accountstate readiness
-when the app knows no order was created.
-
-Scenario examples:
-
-- Binance `-2019` insufficient margin on DCA place.
-- Binance `-2027` position/leverage cap on DCA place.
-- Binance `-4509` close-position order rejected because no matching position
-  exists.
-- Bybit `110017` reduce-only quantity failure while the position is flat.
+1. The exchange rejects before creating an order, and the adapter or app can
+   classify that outcome.
 
 Expected:
 
@@ -221,13 +187,13 @@ Expected:
 - no duplicate retry loop starts;
 - no `recordOrderRejected()` call is made unless the app intentionally wants
   open-order state marked uncertain or a provisional row removed;
-- `readyToTrade` is not forced false only because a deterministic app-level
+- `readyToTrade` is not forced false only because a deterministic application
   capacity block happened.
 
 ### Unknown Or Ambiguous Submission Outcome
 
-Purpose: prove genuinely uncertain outcomes trigger REST validation before live
-mutation.
+Purpose: check that genuinely uncertain outcomes trigger REST validation before
+live mutation.
 
 Scenario:
 
@@ -243,7 +209,8 @@ Expected:
 
 ### Reconnect Requires REST Validation
 
-Purpose: prove the app does not keep mutating from a potentially stale stream.
+Purpose: check that the app does not keep mutating from a potentially stale
+stream.
 
 Scenario:
 
@@ -259,7 +226,7 @@ Expected:
 
 ### Trusted WebSocket State Is Not Downgraded By REST Acceptance
 
-Purpose: prove REST submit acceptance/provisional state does not replace a
+Purpose: check that REST submit acceptance/provisional state does not replace a
 trusted private WebSocket row that already arrived.
 
 Scenario:
@@ -276,7 +243,7 @@ Expected:
 
 ### Startup Prunes Lost Contexts
 
-Purpose: prove app-owned context survives only when supported by current
+Purpose: check that app-owned context survives only when supported by current
 exchange state.
 
 Scenario:
@@ -297,18 +264,37 @@ Suggested fixture names:
 - `private_confirmation_before_rest_acceptance`
 - `terminal_order_is_not_active_confirmation`
 - `execution_fill_is_not_active_confirmation`
-- `bybit_close_all_conditional_stop_qty_zero_is_active`
 - `deterministic_rejection_blocks_without_state_uncertainty`
 - `unknown_submission_requires_state_check`
 - `reconnect_requires_rest_validation`
 - `trusted_ws_state_not_downgraded_by_rest_acceptance`
 - `startup_prunes_contexts_absent_from_open_orders`
 
+## Adapter-Specific Fixtures
+
+Add exchange-specific fixtures beside the core set when an adapter has behavior
+that is easy to mishandle. Examples:
+
+- Binance private stream events can confirm an Algo order before the REST submit
+  promise resolves.
+- Binance and Bybit terminal statuses should be classified through their route
+  helpers, not copied into application conditionals.
+- Bybit close-all conditional market stops can be valid active rows even when
+  `qty`, `leavesQty`, and `price` are all `"0"`.
+- Deterministic no-order-created errors, such as insufficient margin or
+  reduce-only quantity failures while flat, should block the app workflow
+  without making accountstate readiness uncertain.
+
+Example adapter-specific fixture names:
+
+- `binance_algo_confirmation_before_rest_acceptance`
+- `bybit_close_all_conditional_stop_qty_zero_is_active`
+
 ## What To Assert
 
 Assert outcomes visible at the workflow boundary:
 
-- dirty scope keys;
+- queued scope keys;
 - pending slot keys;
 - cleared pending keys;
 - blocked slot keys;
@@ -318,14 +304,14 @@ Assert outcomes visible at the workflow boundary:
 
 Avoid asserting private implementation details such as internal array order,
 timer handles, exact debounce delays, or complete raw exchange payload equality.
-Those make tests noisy without proving safer behavior.
+Those make tests noisy without improving coverage of the workflow boundary.
 
 ## What Not To Build Into Accountstate
 
 Do not move these fixture concerns into `ExchangeAccountStateStore`:
 
 - pending confirmation stores;
-- dirty queues;
+- work queues;
 - timers and debounce;
 - order submission;
 - API clients;
@@ -333,5 +319,5 @@ Do not move these fixture concerns into `ExchangeAccountStateStore`:
 - TP/SL/DCA formulas.
 
 Those pieces can be shared later in a separate optional workflow kit if several
-projects settle on the same shapes. Until then, keep accountstate as the state
-cache and pure adapter helper layer.
+projects use the same workflow model. Until then, keep accountstate as the state
+cache and adapter helper layer.

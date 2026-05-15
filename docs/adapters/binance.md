@@ -9,12 +9,12 @@ loops, or reconnect logic.
 For a complete Binance USD-M account-state workflow using startup REST snapshots,
 private WebSocket account updates, local submission outcomes, and reconnect
 REST refresh, see
-[Binance USD-M integration playbook](../integration-playbook-binance-usdm.md).
+[Binance USD-M integration playbook](./binance-usdm-playbook.md).
 For TP/SL/DCA managers and similar live workflows, also read the
-[position manager workflow pattern](../position-manager-workflow.md). That page
+[position manager workflow](../workflows/position-manager.md). That page
 describes the symbol-side queueing and confirmation model that should live in
-your application, not in the adapter. For app-level tests around that workflow,
-see [Position manager conformance pattern](../conformance-position-manager.md).
+your application, not in the adapter. For application workflow tests,
+see [Position manager conformance](../testing/position-manager-conformance.md).
 
 ## Install
 
@@ -27,13 +27,13 @@ Binance subpath. The root `accountstate` import works without Binance installed.
 
 The Binance SDK's REST `beautifyResponses` option keeps the field names used by
 the supported USD-M REST helpers, but it may parse decimal strings into
-JavaScript numbers. The adapter accepts either shape. Leaving REST responses raw
-preserves exchange decimal strings exactly.
+JavaScript numbers. The adapter accepts either response format. Leaving REST
+responses raw preserves exchange decimal strings exactly.
 
 WebSocket formatting is separate. With `beautify: true`, the Binance SDK still
 emits raw events on `message` and emits formatted events on `formattedMessage`.
 Pass the formatted private WebSocket events to `binance.ws.privateEvent()`.
-Pick one private event shape for accountstate. Do not feed both raw one-letter
+Pick one private event format for accountstate. Do not feed both raw one-letter
 events and formatted events for the same Binance stream, or your application
 will process the same exchange fact twice.
 
@@ -68,7 +68,7 @@ ws.on('formattedMessage', (event) => {
   state.ingest(binance.ws.privateEvent(scope, event));
 
   for (const route of binance.ws.routePrivateEvent(event)) {
-    queueFromRoute(route);
+    handleRouteInYourApp(route);
   }
 });
 ```
@@ -119,10 +119,13 @@ scheduling. It distinguishes active order rows, terminal/non-active order rows,
 fill evidence, position updates, and balance updates. It does not apply state,
 submit orders, schedule work, or decide whether REST recovery is needed.
 
+The example `handleRouteInYourApp()` call represents your own queueing or
+reconcile scheduling code.
+
 `summarizePrivateEvent()` returns a pure summary for logging or event
 coalescing: affected subjects, symbols, assets, order IDs, trigger-order IDs,
 position sides, and exchange statuses. Use it for logs and coarse metrics, not
-as the safest primitive for pending-confirmation logic.
+as the input for pending-confirmation decisions.
 
 `fingerprintPrivateEvent()` returns an exact-payload fingerprint for replay
 protection outside the reducer. It does not collapse raw and formatted variants
@@ -156,7 +159,7 @@ Algo order do not collide when Binance reuses custom IDs across both objects.
 
 For simple managers, treat submitted custom IDs as opaque unique lookup keys
 within Binance's product-specific rules, such as any required prefix or length.
-Keep slot context in your runtime registry and rebuild from hydrated positions
+Keep slot context in your runtime registry and rebuild from current positions
 after restart or lost registry state.
 
 ## Algo Trigger Behavior
@@ -279,7 +282,7 @@ The subpath also exports narrow semantic checks for common Binance outcomes:
 
 - `isBinanceNoNeedToModifyError()` for amend no-ops such as `-5027`
 - `isBinanceOrderWouldImmediatelyTriggerError()` for trigger rejection `-2021`
-- `isBinanceParameterNotRequiredOrAllowedError()` for invalid order-shape
+- `isBinanceParameterNotRequiredOrAllowedError()` for invalid order request
   parameters such as `-1106`
 - `isBinancePositionUnavailableError()` for close-position requests that need a
   matching open position, such as `-4509`

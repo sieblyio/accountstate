@@ -17,7 +17,7 @@ Your application owns this part:
 ```text
 current account view
   -> queue affected symbol/sides
-  -> choose one safe phase
+  -> choose one workflow phase
   -> submit/cancel/amend through your exchange SDK
   -> record the observed outcome
 ```
@@ -44,7 +44,7 @@ Use this flow for live account-level workflows:
    adapter's submission helpers or the store's `recordOrder*` methods.
 10. Treat accepted submit responses as provisional local evidence. They suppress
     duplicate submits, but they do not satisfy the default open-order read model
-    and do not unlock dependent phases.
+    and do not let dependent phases run.
 11. Wait for REST or WebSocket confirmation before moving to a later phase that
     depends on the previous mutation.
 12. Use REST again at trust boundaries: startup, restart, reconnect, known
@@ -54,8 +54,8 @@ Use this flow for live account-level workflows:
 The important rule is simple: the store answers "what does the account look
 like now?" The application decides "what should I do next?"
 
-For tests that prove an application follows this pattern, see
-[Position manager conformance pattern](./conformance-position-manager.md).
+For tests that check whether an application follows this pattern, see
+[Position manager conformance](../testing/position-manager-conformance.md).
 
 ## Symbol-Side Queues
 
@@ -92,9 +92,9 @@ decision kind:
 | --- | --- | --- |
 | `activeOrder` | ingest immediately | clear pending active-order confirmation and reconcile immediately |
 | `terminalOrder` | ingest immediately | clear pending/context for that order and re-read state |
-| `executionFill` | ingest immediately | mark the affected symbol/side dirty; do not treat as open-order confirmation |
+| `executionFill` | ingest immediately | queue the affected symbol/side; do not treat as open-order confirmation |
 | `position` | ingest immediately | schedule a bounded trailing symbol-side reconcile |
-| `balance` | ingest immediately | state-only unless your strategy depends on balances |
+| `balance` | ingest immediately | no workflow action unless your strategy depends on balances |
 | reconnect, disconnect, or known stream gap | record stream health | satisfy `stateChecks` through REST before live mutation |
 
 Do not debounce accountstate ingestion. If you debounce anything, debounce only
@@ -102,9 +102,8 @@ the application workflow scheduling for externally triggered position bursts.
 Own-order confirmations should bypass that delay because they unblock serialized
 workflows.
 
-If you use Binance with the Binance SDK, feed only one private event shape into
-accountstate. The adapter expects formatted private events; do not also feed
-raw one-letter events from another emitter for the same stream.
+Some adapters require a specific private event format. Follow the adapter page
+for your exchange, and feed only one event format for the same stream.
 
 ## Phase Gating
 
@@ -151,19 +150,14 @@ order that the private stream already confirmed.
 Adapter subpaths expose small semantic error helpers for common exchange
 outcomes. Use those helpers to decide whether an observed cancel/amend failure
 is an idempotent no-op, a stale-target race, or a real recovery boundary, then
-record the resulting fact in the store. For example, Binance `-2011`/`-2013`
-can mean a cancel target is already absent, Binance `-5027` can mean an amend
-was already converged, and Bybit `retCode: 10001` with `order not modified`
-can be an amend no-op. Those helpers do not submit orders or update state by
-themselves.
+record the resulting fact in the store. Those helpers do not submit orders or
+update state by themselves. See the adapter pages for exchange-specific error
+codes.
 
 Deterministic no-order-created rejections should usually be handled as
-application blocked/cooldown state, not as accountstate uncertainty. Examples
-include Binance insufficient margin or position-limit blocks, Binance
-close-position requests rejected because the position is already gone, and
-Bybit reduce-only quantity failures while flat. Use `recordOrderRejected()` for
-paths where you want open-order state marked uncertain or a provisional row
-removed.
+application blocked/cooldown state, not as accountstate uncertainty. Use
+`recordOrderRejected()` for paths where you want open-order state marked
+uncertain or a provisional row removed.
 
 ## REST Boundaries
 
@@ -234,11 +228,11 @@ runtime registry:
 Do not encode symbol, side, role, step, lifecycle epoch, replacement generation,
 or recovery state in the exchange-visible ID by default. If the runtime registry
 is lost after restart or recovery, cancel app-owned open orders by prefix/scope
-and rebuild from current hydrated positions.
+and rebuild from current positions.
 
-Parseable custom IDs are an advanced adoption lane. Use that lane only when the
-application also has durable strategy state and restart fixtures proving that
-cross-process adoption is safer than wipe-and-rebuild.
+Parseable custom IDs are an advanced option. Use them only when the application
+also has durable strategy state and restart tests showing that cross-process
+adoption is better than cancel-and-rebuild.
 
 ## What Not To Put In Accountstate
 

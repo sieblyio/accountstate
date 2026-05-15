@@ -322,7 +322,7 @@ export function summarizeBinanceUsdmPrivateEvent(
 /**
  * Route one formatted USD-M private WebSocket event into row-level workflow
  * hints. Ingest `ws.privateEvent()` into the store first, then use these pure
- * decisions to mark app-owned scopes dirty, clear pending confirmations, or log
+ * decisions to queue app-owned scopes, clear pending confirmations, or log
  * fills. `TRADE_LITE` is fill evidence only, never active-order confirmation.
  */
 export function routeBinanceUsdmPrivateEvent(
@@ -345,8 +345,8 @@ export function routeBinanceUsdmPrivateEvent(
 /**
  * Return a stable exact-payload fingerprint for replay protection outside the
  * reducer. This does not collapse raw one-letter and SDK-formatted variants of
- * the same Binance event; choose one private event shape and feed only that
- * shape into accountstate.
+ * the same Binance event; choose one private event format and feed only that
+ * format into accountstate.
  */
 export function fingerprintBinanceUsdmPrivateEvent(event: unknown): string {
   return fingerprintExactPayload(event);

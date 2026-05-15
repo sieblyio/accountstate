@@ -391,7 +391,7 @@ export class ExchangeAccountStateStore {
   }
 
   /**
-   * Record a cancel response that proves the target order is no longer open.
+   * Record a cancel response confirming the target order is no longer open.
    */
   recordOrderCancelled(input: OrderCancelledInput): ChangeSet {
     return this.#markOrderTerminal(createOrderCancelledFact(input));
@@ -917,7 +917,7 @@ export class ExchangeAccountStateStore {
    * Apply explicit terminal evidence for a known order identity.
    *
    * This is the escape hatch for facts such as "unknown order on cancel" or a
-   * later authoritative lookup proving an order is no longer open.
+   * later authoritative lookup confirming an order is no longer open.
    */
   #markOrderTerminal(input: TerminalEvidenceFact): ChangeSet {
     const state = this.#getOrCreateScopeState(input.scope);

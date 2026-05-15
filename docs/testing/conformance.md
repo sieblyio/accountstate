@@ -9,7 +9,7 @@ They are not required for normal application usage.
 These fixtures cover the account-state reducer boundary: adapter/store facts in,
 normalized account state out. For application workflow tests around pending
 confirmations, private event routing, and live submission phases, see
-[Position manager conformance pattern](./conformance-position-manager.md).
+[Position manager conformance](./position-manager-conformance.md).
 
 ## Run The Default Fixtures
 

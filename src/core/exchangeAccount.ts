@@ -169,7 +169,7 @@ export interface OrderStatusUnknownInput {
 }
 
 /**
- * Successful cancel response that proves the target order is no longer open.
+ * Successful cancel response confirming the target order is no longer open.
  */
 export interface OrderCancelledInput {
   scope: AccountScope;

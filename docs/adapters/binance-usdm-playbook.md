@@ -13,11 +13,11 @@ startup REST snapshots
 
 `accountstate` does not create Binance clients, listen keys, sockets, timers,
 API keys, retries, or orders. Your application owns those concerns. The store
-only keeps the account view coherent from the account-state data you feed it.
+keeps the account view current from the account-state data you feed it.
 
 For TP/SL/DCA managers and similar live workflows, use this playbook together
 with the exchange-agnostic
-[position manager workflow pattern](./position-manager-workflow.md). The
+[position manager workflow](../workflows/position-manager.md). The
 workflow document covers symbol-side queues, phase gating, confirmation, and
 REST trust boundaries. Those decisions belong in your application, not in the
 Binance adapter.
@@ -116,7 +116,7 @@ Coalesce bursts in the application. For example, order and Algo events can
 usually schedule trading logic quickly, while trade or balance-only events can
 be debounced.
 
-If you want to coalesce by event shape before ingesting, use
+If you want to coalesce by event payload before ingesting, use
 `binance.ws.summarizePrivateEvent(event)`. The summary is only data: affected
 subjects, symbols, assets, order IDs, trigger-order IDs, and exchange statuses.
 Your application still decides debounce timing and recovery policy.
@@ -144,7 +144,7 @@ Accepted submissions create provisional local rows. Those rows are available
 with `state.getOpenOrders(scope, { trust: 'includeProvisional' })`, but the
 default `getAccount(scope).openOrders` and `getOpenOrders(scope)` views expose
 trusted exchange-confirmed rows only. Use provisional rows to suppress duplicate
-submissions or diagnose pending work; do not use them to unlock DCA, cleanup, or
+submissions or diagnose pending work; do not use them to start DCA, cleanup, or
 replacement phases before private WebSocket or REST confirmation.
 
 Accepted place:
@@ -237,7 +237,7 @@ state.ingest(
 );
 ```
 
-The key rule: an accepted cancel proves the target order should no longer appear
+The key rule: an accepted cancel means the target order should no longer appear
 in open-order results.
 
 ## Reconnect And Gap Handling

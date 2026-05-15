@@ -4,8 +4,8 @@
 queues, order submission, retries, or workflow phases. Applications that submit
 orders should still follow a simple confirmation lifecycle around the store.
 
-For app-level fixtures that prove this lifecycle, see
-[Position manager conformance pattern](./conformance-position-manager.md).
+For application fixtures that test this lifecycle, see
+[Position manager conformance](../testing/position-manager-conformance.md).
 
 ## Normal Place Flow
 
@@ -36,11 +36,7 @@ const pendingOrActive = state.getOpenOrders(scope, {
 ## Private Confirmation Can Arrive First
 
 Some exchanges can emit a private WebSocket confirmation before the REST submit
-promise resolves. Binance USD-M Algo orders have been observed doing this:
-`ALGO_UPDATE NEW` can arrive a few milliseconds before
-`submitNewAlgoOrder()` returns.
-
-Handle that ordering in application state:
+promise resolves. Handle that ordering in application state.
 
 ```typescript
 function onPrivateRoute(route: Route): void {
@@ -72,26 +68,23 @@ observed for that slot. If so, do not create a stale pending timeout.
 
 ## Terminal And Fill Routes
 
-Terminal/non-active order routes and execution routes should not unlock later
-phases as if an active open order is resting on the exchange.
+Terminal/non-active order routes and execution routes should not move the
+workflow to later phases before an active open order is confirmed.
 
 Useful handling:
 
 - `activeOrder`: clear pending active-order confirmation for that slot.
 - `terminalOrder`: clear pending/context for that order and re-read the store.
-- `executionFill`: mark the symbol/side dirty; do not treat it as open-order
+- `executionFill`: queue the symbol/side; do not treat it as open-order
   confirmation.
-- `position`: mark the symbol/side dirty.
+- `position`: queue the symbol/side.
 - `balance`: update UI/risk views if your application depends on balances.
 
 ## Deterministic Rejections
 
-Some exchange errors prove the requested order was not created. Examples:
-
-- Binance `-2019` insufficient margin.
-- Binance `-2027` max position or leverage limit.
-- Binance `-4509` close-position order without a matching open position.
-- Bybit `110017` reduce-only quantity cannot be fixed while flat.
+Some exchange errors show that the requested order was not created, such as
+insufficient margin, position-limit failures, or reduce-only requests that
+cannot be satisfied while the position is flat.
 
 Those outcomes usually belong in application blocked/cooldown state. Do not
 automatically call `recordOrderRejected()` for deterministic no-order-created

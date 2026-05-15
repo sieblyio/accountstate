@@ -320,7 +320,7 @@ export const defaultAccountStateFixtures = [
   {
     name: 'full-close-cleanup-pending-until-orders-terminal',
     description:
-      'A closed position remains in cleanup until app-owned open orders are proven terminal.',
+      'A closed position remains in cleanup until app-owned open orders are terminal.',
     initialFacts: [
       restSnapshot('positions', [position()], 1, 'replace-scope'),
       restSnapshot('openOrders', [order()], 1, 'replace-scope'),

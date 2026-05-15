@@ -7,10 +7,10 @@ account-state updates. It does not create REST clients, WebSocket clients,
 timers, API keys, retry loops, subscriptions, or reconnect logic.
 
 For TP/SL/DCA managers and similar live workflows, read the
-[position manager workflow pattern](../position-manager-workflow.md). That page
+[position manager workflow](../workflows/position-manager.md). That page
 describes the symbol-side queueing and confirmation model that should live in
-your application, not in the adapter. For app-level tests around that workflow,
-see [Position manager conformance pattern](../conformance-position-manager.md).
+your application, not in the adapter. For application workflow tests,
+see [Position manager conformance](../testing/position-manager-conformance.md).
 
 ## Install
 
@@ -44,7 +44,7 @@ ws.on('update', (event) => {
   state.ingest(bybit.ws.privateEvent(scope, event));
 
   for (const route of bybit.ws.routePrivateEvent(event)) {
-    queueFromRoute(route);
+    handleRouteInYourApp(route);
   }
 });
 
@@ -92,10 +92,13 @@ scheduling. It distinguishes active order rows, terminal/non-active order rows,
 fill evidence, position updates, and balance updates. It does not apply state,
 submit orders, schedule work, or decide whether REST recovery is needed.
 
+The example `handleRouteInYourApp()` call represents your own queueing or
+reconcile scheduling code.
+
 `summarizePrivateEvent()` returns a pure summary for logging or event
 coalescing: affected subjects, symbols, assets, order IDs, position sides, and
-exchange statuses. Use it for logs and coarse metrics, not as the safest
-primitive for pending-confirmation logic.
+exchange statuses. Use it for logs and coarse metrics, not as the input for
+pending-confirmation decisions.
 
 `fingerprintPrivateEvent()` returns an exact-payload fingerprint for replay
 protection outside the reducer.
@@ -139,8 +142,8 @@ The route helper follows Bybit V5 private stream semantics:
 - `position` and `wallet` topics produce position and balance routes.
 
 Terminal order routes and execution routes are not active open-order
-confirmations. They should not unlock later workflow phases as if an open order
-were resting on the exchange.
+confirmations. They should not move later workflow phases forward before an
+open order is confirmed on the exchange.
 
 ## Order Identity
 
@@ -160,7 +163,7 @@ state.getOrder(scope, {
 
 For simple managers, treat submitted `orderLinkId` values as opaque unique
 lookup keys, not parseable strategy state. Keep slot context in your runtime
-registry and rebuild from hydrated positions after restart or lost registry
+registry and rebuild from current positions after restart or lost registry
 state.
 
 ## Position Mode

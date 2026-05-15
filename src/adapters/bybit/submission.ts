@@ -161,7 +161,7 @@ export function cancelRejected(
 }
 
 /**
- * Record an indeterminate cancel outcome when the exchange did not prove
+ * Record an indeterminate cancel outcome when the exchange did not confirm
  * whether the target order is still open.
  */
 export function cancelStatusUnknown(

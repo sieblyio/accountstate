@@ -7,6 +7,10 @@ import {
 import { getUnrealisedPNL } from './util/math.js';
 
 /**
+ * @deprecated Use `ExchangeAccountStateStore` for new REST-plus-WebSocket
+ * exchange integrations. This original direct-cache store remains available
+ * for backwards compatibility.
+ *
  * This abstraction layer is a state cache for account state (so we know what changed when an event comes in).
  *
  * Since it's mostly a cache of information also available on the exchange (via a REST API call), none of it needs to be persisted.

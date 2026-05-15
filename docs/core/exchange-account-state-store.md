@@ -10,7 +10,7 @@ the account-state rules.
 
 ## Normal Workflow
 
-Most applications should use this shape:
+Most applications should use this flow:
 
 ```typescript
 import { ExchangeAccountStateStore, type AccountScope } from 'accountstate';
@@ -129,8 +129,8 @@ for (const route of exchange.ws.routePrivateEvent(event)) {
 }
 ```
 
-The first call updates the store. The route decisions are pure hints for your
-application and keep row-level meanings separate: active orders, terminal
+The first call updates the store. The route decisions are read-only hints for
+your application and keep row-level meanings separate: active orders, terminal
 orders, fills, positions, and balances. See
 [Private event routing](./private-event-routing.md).
 
@@ -177,14 +177,14 @@ For TP/SL/DCA managers and similar live trading workflows, use
 `ExchangeAccountStateStore` as the current account view rather than building a
 second position or order cache.
 
-The recommended shape is:
+The recommended flow is:
 
 ```text
 REST snapshots and private WebSocket events
   -> ExchangeAccountStateStore
   -> getAccount(scope)
   -> application queue by affected symbol/side
-  -> one safe workflow phase
+  -> one workflow phase
   -> record observed submission outcomes
   -> wait for REST or WebSocket confirmation
 ```
@@ -199,7 +199,7 @@ reconnect/gap recovery, explicit `stateChecks`, unknown submission status, and
 confirmation timeouts; do not poll REST after every healthy private WebSocket
 event.
 
-See [Position manager workflow pattern](./position-manager-workflow.md) for the
+See [Position manager workflow](../workflows/position-manager.md) for the
 full exchange-agnostic pattern.
 
 ## Order Submission Outcomes
@@ -239,8 +239,8 @@ An accepted submission creates a provisional local row. That row is available
 with `trust: 'includeProvisional'` and through the advanced `getAccountView()`,
 but it is hidden from `getAccount(scope).openOrders` and `getOpenOrders(scope)`
 until REST or private WebSocket confirmation arrives. This prevents accepted
-submit responses from unlocking later workflow phases as if the exchange had
-already confirmed the order.
+submit responses from moving the workflow forward before the exchange has
+confirmed the order.
 
 Use `recordOrderRejected()` when the rejection should remove a provisional row
 or mark open-order state uncertain. Deterministic no-order-created blocks, such
