@@ -15,6 +15,10 @@ There is no event emitter to wire up. Your app feeds a REST snapshot, WebSocket
 update, replay fact, or simulated update into the store, then reads the returned
 `ChangeSet`.
 
+You do not need adapter route helpers for these events. Route helpers are useful
+when you need private-event row meanings, such as active order confirmation
+versus terminal order evidence.
+
 ## Events
 
 The position events are:
@@ -59,23 +63,27 @@ for (const event of change.entityChanges) {
 ```
 
 Before a live order mutation, read the account view again and confirm the
-position still exists. A helper like this keeps that check close to the code
-that submits or amends orders:
+position still exists. This check belongs in the same code path that is about
+to submit or amend an order:
 
 ```typescript
-import type { PositionEntityChange } from 'accountstate';
-
-function hasPosition(event: PositionEntityChange): boolean {
+for (const event of change.entityChanges) {
   const account = state.getAccount(scope, {
     requiredSubjects: ['positions', 'openOrders'],
   });
 
-  return account.positions.some(
+  const positionStillOpen = account.positions.some(
     (position) =>
       position.symbol === event.key.symbol &&
       position.exchangePositionSide === event.key.exchangePositionSide &&
       position.strategySide === event.key.strategySide,
   );
+
+  if (!positionStillOpen) {
+    continue;
+  }
+
+  queueProtectionWork(event);
 }
 ```
 

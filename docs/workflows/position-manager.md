@@ -16,7 +16,7 @@ Your application owns this part:
 
 ```text
 current account view
-  -> queue affected symbol/sides
+  -> queue affected symbol/side keys
   -> choose one workflow phase
   -> submit/cancel/amend through your exchange SDK
   -> record the observed outcome
@@ -75,10 +75,10 @@ type WorkKey = {
 ```
 
 The queue belongs to your application, not to `accountstate`. Adapter
-`ws.routePrivateEvent(event)` helpers can help you route affected symbols,
-orders, fills, positions, and balances after ingesting the event, but they do
-not schedule work. `ws.summarizePrivateEvent(event)` remains useful for logs
-and coarse metrics.
+`ws.routePrivateEvent(event)` helpers can help you route affected symbol/side
+keys, orders, fills, positions, and balances after ingesting the event, but
+they do not schedule work. `ws.summarizePrivateEvent(event)` remains useful for
+logs and coarse metrics.
 
 ## Private Event Routing
 
@@ -90,10 +90,10 @@ decision kind:
 
 | Route kind | Store action | Workflow action |
 | --- | --- | --- |
-| `activeOrder` | ingest immediately | clear pending active-order confirmation and reconcile immediately |
+| `activeOrder` | ingest immediately | clear pending active-order confirmation and run the next local workflow step immediately |
 | `terminalOrder` | ingest immediately | clear pending/context for that order and re-read state |
 | `executionFill` | ingest immediately | queue the affected symbol/side; do not treat as open-order confirmation |
-| `position` | ingest immediately | schedule a bounded trailing symbol-side reconcile |
+| `position` | ingest immediately | queue a bounded trailing workflow pass for that symbol/side |
 | `balance` | ingest immediately | no workflow action unless your strategy depends on balances |
 | reconnect, disconnect, or known stream gap | record stream health | satisfy `stateChecks` through REST before live mutation |
 

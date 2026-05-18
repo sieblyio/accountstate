@@ -134,6 +134,11 @@ your application and keep row-level meanings separate: active orders, terminal
 orders, fills, positions, and balances. See
 [Private event routing](./private-event-routing.md).
 
+For position-open, size-change, update, and close workflows, you can often skip
+route helpers and consume `change.entityChanges` from the store write instead.
+Use routes when you need exchange event row meanings, especially for pending
+order confirmations.
+
 ## Querying State
 
 ```typescript

@@ -15,6 +15,16 @@ application: queue affected work, clear pending confirmations, record that a
 fill happened, or write logs. Route helpers do not mutate the store and do not
 submit, cancel, retry, reconnect, or call REST.
 
+If all you need is position entity changes, consume `change.entityChanges` from
+the store write. Route helpers answer a different question: what each private
+WebSocket event row means for application workflow routing.
+
+If your app uses names like `markSymbolDirty` or `markBalanceDirty`, treat them
+as application scheduling flags: "run my local workflow for this market,
+position, or balance using the current store view". They do not mean "refresh
+from REST". In hedge mode, keep the route's side fields in that work key when
+the adapter provides them.
+
 ## Why Routes Exist
 
 `summarizePrivateEvent()` is useful for logging and coarse metrics, but it
@@ -48,6 +58,8 @@ Important rules:
 
 - Terminal/non-active order routes are not active order confirmations.
 - Execution/fill routes are not active order confirmations.
+- Position and fill routes should usually queue symbol/side work when the route
+  includes side fields.
 - Ingest private events immediately; debounce only application workflow
   scheduling if needed.
 - While the private stream is healthy, trust the store instead of polling REST

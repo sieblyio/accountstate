@@ -99,15 +99,15 @@ changes:
 
 ```typescript
 function onPrivateWebSocketEvent(event: unknown) {
-  const summary = binance.ws.summarizePrivateEvent(event as never);
-  const changes = state.ingest(binance.ws.privateEvent(scope, event as never));
+  state.ingest(binance.ws.privateEvent(scope, event as never));
+  const routes = binance.ws.routePrivateEvent(event as never);
 
-  for (const change of Array.isArray(changes) ? changes : [changes]) {
-    if (change.changed) {
-      queueAffectedWork(summary);
-      scheduleWorkDrain('private_ws');
-      break;
-    }
+  for (const route of routes) {
+    queueRouteWork(route);
+  }
+
+  if (routes.length > 0) {
+    scheduleWorkDrain('private_ws');
   }
 }
 ```
@@ -116,10 +116,10 @@ Coalesce bursts in the application. For example, order and Algo events can
 usually schedule trading logic quickly, while trade or balance-only events can
 be debounced.
 
-If you want to coalesce by event payload before ingesting, use
-`binance.ws.summarizePrivateEvent(event)`. The summary is only data: affected
-subjects, symbols, assets, order IDs, trigger-order IDs, and exchange statuses.
-Your application still decides debounce timing and recovery policy.
+Use `binance.ws.summarizePrivateEvent(event)` for logs and coarse metrics. The
+summary is only data: affected subjects, symbols, assets, order IDs,
+trigger-order IDs, and exchange statuses. Use `routePrivateEvent()` when a
+workflow decision depends on the row meaning or position side.
 
 For position managers, prefer a symbol-side work queue over a product-wide
 planner pass. Coalesce event bursts, read the current account view for the
@@ -401,9 +401,10 @@ queueAllOpenSymbolSides('startup');
 await drainWorkQueue('startup');
 
 ws.on('formattedMessage', (event) => {
-  const summary = binance.ws.summarizePrivateEvent(event);
   state.ingest(binance.ws.privateEvent(scope, event));
-  queueAffectedWork(summary);
+  for (const route of binance.ws.routePrivateEvent(event)) {
+    queueRouteWork(route);
+  }
   scheduleWorkDrain('private_ws');
 });
 

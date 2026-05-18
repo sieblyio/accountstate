@@ -5,9 +5,9 @@
     "type": "git",
     "url": "git+https://github.com/sieblyio/accountstate.git"
   },
-  "description": "Simple, reusable, in-memory account state store for working with exchange positions",
+  "description": "In-memory account state store for crypto exchange applications",
   "author": "tiagosiebler",
-  "license": "ISC",
+  "license": "MIT",
   "main": "dist/cjs/index.js",
   "module": "dist/mjs/index.js",
   "types": "dist/mjs/index.d.ts",
@@ -41,8 +41,16 @@
   "type": "module",
   "files": [
     "dist/*",
-    "docs/**/*.md",
+    "docs/README.md",
+    "docs/adapters/**/*.md",
+    "docs/core/exchange-account-state-store.md",
+    "docs/core/private-event-routing.md",
+    "docs/entityEvents/**/*.md",
+    "docs/legacy/**/*.md",
+    "docs/testing/**/*.md",
+    "docs/workflows/**/*.md",
     "examples/binance-usdm-exchange-account-state.ts",
+    "examples/entityEvents/**/*",
     "examples/bybit-v5-linear-exchange-account-state.ts"
   ],
   "scripts": {

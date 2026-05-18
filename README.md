@@ -73,7 +73,8 @@ npm install accountstate binance
 npm install accountstate bybit-api
 ```
 
-Looking for an adaptor we haven't added yet? Build your own, or open an issue to request it.
+Looking for an adapter we haven't added yet? Build your own, or open an issue
+to request it.
 
 ## Quick Start
 
@@ -82,13 +83,15 @@ Most exchange applications already have two feeds into account state:
 - REST API responses for the latest account snapshot.
 - Private WebSocket account events for live changes.
 
-In an ideal system these allow for a powerful event-driven architecture. Use the REST API to backfill initial state. Once your initial state is in sync, use the WebSocket stream to feed realtime updates into the account state store, passively keeping your local state in sync with exchange state.
+In an ideal system these allow for a powerful event-driven architecture. Use the REST API to backfill initial state. Once your local state store is in sync, use the WebSocket stream to feed realtime updates into the store, passively keeping your local state in sync with exchange state.
 
-When your system needs to know anything about your account, be it balances, position or order states, don't block anything with a REST API query. Just read your local state store.
+When your app needs balances, positions, or order state, read the local store
+instead of blocking on a REST call.
 
 The `ExchangeAccountStateStore` is designed around that flow. Your app owns the
 REST clients, WebSocket clients, API keys, reconnects, retries, and scheduling.
-`accountstate` only stores and reconciles account-state data you give it. This is your dumping ground and read model for account state.
+`accountstate` only applies the account-state facts you give it and exposes a
+current read model.
 
 ```typescript
 import { ExchangeAccountStateStore, type AccountScope } from 'accountstate';
@@ -212,16 +215,22 @@ adapter keeps that regular order separate from the terminal Algo row.
 Adapters also expose `ws.routePrivateEvent(event)` for row-level private
 WebSocket routing and `ws.summarizePrivateEvent(event)` for small logging
 summaries. Route decisions distinguish active order rows, terminal/non-active
-order rows, execution fills, position updates, and balance updates. They do not
-schedule work or make recovery decisions; your application chooses how to react.
+order rows, execution fills, position updates, and balance updates. When the
+exchange event identifies a position side, keep that side in your workflow key
+instead of scheduling only by symbol. Route decisions do not schedule work or
+make recovery decisions; your application chooses how to react.
 
 For Binance, pass the SDK-formatted private events emitted on
 `formattedMessage`. Do not feed both formatted events and raw one-letter events
 for the same stream into accountstate, or your application will process the
 same exchange fact twice.
 
-`routePrivateEvent()` only returns facts about what changed. The example
+`routePrivateEvent()` only returns facts from the private event rows. The example
 `handleRouteInYourApp()` call represents your own scheduling code.
+
+If you only need to react to position opens, size changes, updates, and closes,
+read `change.entityChanges` from the store write. Route helpers are optional
+for application workflow decisions such as pending order confirmations.
 
 Adapters are pure: they do not create REST clients, WebSocket clients, timers,
 retries, API keys, or stream sessions. They only accept objects you already
@@ -312,7 +321,7 @@ if (violations.some((violation) => violation.severity === 'error')) {
 }
 ```
 
-## Reducer Change Results
+## Change Sets
 
 Every store write returns a `ChangeSet`. Use it as the synchronous result of
 feeding one REST snapshot, private WebSocket update, replay fact, or submission
@@ -398,9 +407,10 @@ exchange integrations.
    BYBIT_API_SECRET=your_api_secret
    ```
 
-2. Run example:
+2. Build and run the example:
    ```bash
-   tsx examples/bybit-v5-linear-exchange-account-state.ts
+   npm run build
+   npx ts-node --esm examples/bybit-v5-linear-exchange-account-state.ts
    ```
 
 The older `examples/bybit-futures.ts` file demonstrates the legacy

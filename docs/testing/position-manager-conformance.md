@@ -148,7 +148,8 @@ Scenario:
 Expected:
 
 - terminal observation is recorded;
-- pending/context for that order is cleared or marked for reconcile;
+- pending/context for that order is cleared or queued for the next local
+  workflow step;
 - the workflow re-reads accountstate before deciding what to do next;
 - no dependent phase treats the route as active order confirmation.
 

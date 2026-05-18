@@ -121,8 +121,8 @@ scheduling. It distinguishes active order rows, terminal/non-active order rows,
 fill evidence, position updates, and balance updates. It does not apply state,
 submit orders, schedule work, or decide whether REST recovery is needed.
 
-The example `handleRouteInYourApp()` call represents your own queueing or
-reconcile scheduling code.
+The example `handleRouteInYourApp()` call represents your own queueing or local
+workflow scheduling code.
 
 `summarizePrivateEvent()` returns a pure summary for logging or event
 coalescing: affected subjects, symbols, assets, order IDs, trigger-order IDs,
@@ -191,10 +191,18 @@ for (const route of binance.ws.routePrivateEvent(event)) {
       markOrderTerminal(route);
       break;
     case 'executionFill':
-      markSymbolDirty(route.symbol);
+      queuePositionWork({
+        symbol: route.symbol,
+        exchangePositionSide: route.exchangePositionSide,
+        strategySide: route.strategySide,
+      });
       break;
     case 'position':
-      markSymbolDirty(route.symbol);
+      queuePositionWork({
+        symbol: route.symbol,
+        exchangePositionSide: route.exchangePositionSide,
+        strategySide: route.strategySide,
+      });
       break;
     case 'balance':
       markBalanceDirty(route.asset);
@@ -202,6 +210,15 @@ for (const route of binance.ws.routePrivateEvent(event)) {
   }
 }
 ```
+
+`queuePositionWork()` and `markBalanceDirty()` are application hooks. Some apps
+call this kind of scheduling `markSymbolDirty`: it means "schedule my strategy
+to run its local workflow for this affected market or position using the
+current store view", not "change accountstate" or "refresh from REST".
+
+In hedge mode, prefer a work key that includes `symbol`, `exchangePositionSide`,
+and `strategySide` when the route includes them. Fall back to symbol-level work
+only when the exchange event does not identify a side.
 
 The route helper follows Binance USD-M event semantics:
 
