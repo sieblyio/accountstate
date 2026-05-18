@@ -19,6 +19,7 @@ Then choose the exchange adapter you use:
 
 Reference docs:
 
+- [Position entity events](./entityEvents/positionEntityEvents.md)
 - [Pending confirmation lifecycle](./workflows/pending-confirmation-lifecycle.md)
 - [Conformance fixtures](./testing/conformance.md)
 - [Position manager conformance](./testing/position-manager-conformance.md)
@@ -27,6 +28,7 @@ Reference docs:
 ## Folder Layout
 
 - `core/`: exchange-agnostic store behavior and event routing.
+- `entityEvents/`: entity-level change events returned by store writes.
 - `workflows/`: application patterns that use the store.
 - `adapters/`: exchange-specific adapter behavior and playbooks.
 - `testing/`: fixture and conformance patterns.

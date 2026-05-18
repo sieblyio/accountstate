@@ -292,6 +292,23 @@ The counters are deliberately broad account-state words:
 logic. `stateChecks` covers readiness, confidence, watermark, and state-check
 changes.
 
+`entityChanges` carries precise entity-level changes produced by the same
+reducer operation. Position changes include opens, quantity increases,
+quantity decreases, updates, and closes.
+
+```typescript
+const change = state.applyPositionUpdate(scope, position);
+
+for (const entityChange of change.entityChanges) {
+  if (entityChange.type === 'position_quantity_increased') {
+    queueProtectionAmend(entityChange);
+  }
+}
+```
+
+For the simple workflow and event shapes, see
+[Position entity events](../entityEvents/positionEntityEvents.md).
+
 ## Advanced APIs
 
 Most application code should not need these:

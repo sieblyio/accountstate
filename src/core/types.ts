@@ -58,6 +58,86 @@ export interface NormalizedPosition extends AccountScope {
   raw?: unknown;
 }
 
+export interface PositionEntityKey {
+  symbol: string;
+  exchangePositionSide: string;
+  strategySide: StrategySide;
+}
+
+export type PositionEntityChangeType =
+  | 'position_opened'
+  | 'position_quantity_increased'
+  | 'position_quantity_decreased'
+  | 'position_updated'
+  | 'position_closed';
+
+export type PositionChangedField =
+  | 'exchangePositionSide'
+  | 'strategySide'
+  | 'quantity'
+  | 'signedQuantity'
+  | 'averageEntry'
+  | 'markPrice'
+  | 'liquidationPrice'
+  | 'marginMode'
+  | 'leverage';
+
+export interface BasePositionEntityChange {
+  entity: 'position';
+  type: PositionEntityChangeType;
+  scope: AccountScope;
+  key: PositionEntityKey;
+  changedFields: PositionChangedField[];
+  provenance?: Provenance;
+  sequence: number;
+}
+
+export interface PositionOpenedEntityChange
+  extends BasePositionEntityChange {
+  type: 'position_opened';
+  current: NormalizedPosition;
+  previous?: NormalizedPosition;
+}
+
+export interface PositionQuantityIncreasedEntityChange
+  extends BasePositionEntityChange {
+  type: 'position_quantity_increased';
+  previous: NormalizedPosition;
+  current: NormalizedPosition;
+  quantityDelta: DecimalString;
+}
+
+export interface PositionQuantityDecreasedEntityChange
+  extends BasePositionEntityChange {
+  type: 'position_quantity_decreased';
+  previous: NormalizedPosition;
+  current: NormalizedPosition;
+  quantityDelta: DecimalString;
+}
+
+export interface PositionUpdatedEntityChange
+  extends BasePositionEntityChange {
+  type: 'position_updated';
+  previous: NormalizedPosition;
+  current: NormalizedPosition;
+}
+
+export interface PositionClosedEntityChange
+  extends BasePositionEntityChange {
+  type: 'position_closed';
+  previous: NormalizedPosition;
+  current?: NormalizedPosition;
+}
+
+export type PositionEntityChange =
+  | PositionOpenedEntityChange
+  | PositionQuantityIncreasedEntityChange
+  | PositionQuantityDecreasedEntityChange
+  | PositionUpdatedEntityChange
+  | PositionClosedEntityChange;
+
+export type AccountEntityChange = PositionEntityChange;
+
 export type NormalizedOrderKind =
   | 'regular'
   | 'algo'
@@ -230,6 +310,7 @@ export interface SnapshotInput<T> {
   source: StateSource;
   coverage?: SnapshotCoverage;
   provenance?: Provenance;
+  emitEntityChanges?: 'default' | 'none';
 }
 
 export interface StateWarning {
@@ -280,6 +361,13 @@ export interface ChangeSet {
    * True when the account confidence/readiness changed.
    */
   confidenceChanged: boolean;
+  /**
+   * Entity-level changes produced by this exact reducer operation.
+   *
+   * This is a deterministic outbox for applications that want precise
+   * before/after information without callbacks or hidden async delivery.
+   */
+  entityChanges: AccountEntityChange[];
   warnings: StateWarning[];
 }
 

@@ -312,6 +312,27 @@ if (violations.some((violation) => violation.severity === 'error')) {
 }
 ```
 
+## Reducer Change Results
+
+Every store write returns a `ChangeSet`. Use it as the synchronous result of
+feeding one REST snapshot, private WebSocket update, replay fact, or submission
+outcome into the reducer.
+
+```typescript
+const change = state.applyPositionUpdate(scope, normalizedPositionUpdate);
+
+if (change.changedSubjects.includes('positions')) {
+  queuePositionWorkflow();
+}
+```
+
+The broad fields tell you which account subjects changed and how many rows were
+added, updated, removed, or marked stale. `entityChanges` contains precise
+entity-level changes from the same reducer call.
+
+For the position workflow and a runnable example, see
+[Position entity events](./docs/entityEvents/positionEntityEvents.md).
+
 ## Docs
 
 Start with the [docs guide](./docs/README.md). It separates the main API,
@@ -350,16 +371,18 @@ workflow is documented in
 
 ### Binance Futures
 
-1. Create `.env` file:
+1. Set environment variables:
 
-   ```
-   BINANCE_API_KEY=your_api_key
-   BINANCE_API_SECRET=your_api_secret
-   ```
-
-2. Run example:
    ```bash
-   tsx examples/binance-usdm-exchange-account-state.ts
+   export BINANCE_API_KEY=your_api_key
+   export BINANCE_API_SECRET=your_api_secret
+   ```
+
+2. Build and run the example:
+
+   ```bash
+   npm run build
+   npx ts-node --esm examples/binance-usdm-exchange-account-state.ts
    ```
 
 The older `examples/binance-futures-usdm.ts` file demonstrates the legacy

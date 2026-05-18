@@ -1,13 +1,16 @@
 import { DefaultLogger, USDMClient, WebsocketClient } from 'binance';
-import 'dotenv/config';
 
 import {
   ExchangeAccountStateStore,
   type AccountScope,
-  type ExchangeAccount,
-  type StateCheck,
-} from 'accountstate';
-import { binance, type BinanceUsdmPrivateEvent } from 'accountstate/binance';
+  type ChangeSet,
+  type NormalizedPosition,
+  type PositionEntityChange,
+} from '../dist/mjs/index.js';
+import {
+  binance,
+  type BinanceUsdmPrivateEvent,
+} from '../dist/mjs/adapters/binance/index.js';
 
 const key = process.env.BINANCE_API_KEY || '';
 const secret = process.env.BINANCE_API_SECRET || '';
@@ -48,7 +51,10 @@ const ws = new WebsocketClient(
   logger,
 );
 
-async function refreshFromRest(reason: string): Promise<void> {
+async function refreshFromRest(
+  reason: string,
+  options: { emitEntityChanges?: 'default' | 'none' } = {},
+): Promise<void> {
   const [positions, regularOrders, algoOrders, account] = await Promise.all([
     usdm.getPositionsV3(),
     usdm.getAllOpenOrders(),
@@ -56,117 +62,89 @@ async function refreshFromRest(reason: string): Promise<void> {
     usdm.getAccountInformationV3(),
   ]);
 
-  state.ingest(binance.rest.positions(scope, positions));
+  // emitEntityChanges is optional. Use 'none' for startup hydration or another
+  // REST overwrite/sync that should not look like live position activity.
+  logPositionEntityChanges(
+    reason,
+    state.ingest(
+      binance.rest.positions(scope, positions, {
+        emitEntityChanges: options.emitEntityChanges,
+      }),
+    ),
+  );
   state.ingest(binance.rest.openOrders(scope, regularOrders));
   state.ingest(binance.rest.openAlgoOrders(scope, algoOrders));
   state.ingest(binance.rest.accountBalances(scope, account.assets));
 
-  logAccountState(reason);
-}
-
-async function checkStateFromRest(reason: string): Promise<void> {
-  const checks = state.getAccount(scope).stateChecks;
-
-  if (checks.length === 0) {
-    return;
-  }
-
-  const subjects = new Set(checks.map((check) => check.subject));
-
-  if (subjects.has('positions')) {
-    state.ingest(binance.rest.positions(scope, await usdm.getPositionsV3()));
-  }
-
-  if (subjects.has('openOrders')) {
-    state.ingest(binance.rest.openOrders(scope, await usdm.getAllOpenOrders()));
-    state.ingest(
-      binance.rest.openAlgoOrders(scope, await usdm.getOpenAlgoOrders()),
-    );
-  }
-
-  if (subjects.has('balances')) {
-    const account = await usdm.getAccountInformationV3();
-    state.ingest(binance.rest.accountBalances(scope, account.assets));
-  }
-
-  logStateChecks(`${reason}:rest_checked`, checks);
-  logAccountState(`${reason}:rest_checked`);
-}
-
-function onPrivateEvent(event: BinanceUsdmPrivateEvent): void {
-  state.ingest(binance.ws.privateEvent(scope, event));
-
-  const routes = binance.ws.routePrivateEvent(event);
-  if (routes.length > 0) {
-    console.log(new Date(), 'binance_private_routes', {
-      fingerprint: binance.ws.fingerprintPrivateEvent(event),
-      routes: routes.map((route) => ({
-        kind: route.kind,
-        symbol: 'symbol' in route ? route.symbol : undefined,
-        customOrderId: 'customOrderId' in route ? route.customOrderId : undefined,
-        customTriggerOrderId:
-          'customTriggerOrderId' in route
-            ? route.customTriggerOrderId
-            : undefined,
-        status: 'orderStatus' in route ? route.orderStatus : undefined,
-      })),
-    });
-  }
-}
-
-function logStateChecks(reason: string, checks: StateCheck[]): void {
-  console.log(new Date(), 'state_checks', {
+  console.log(new Date(), 'rest_sync_complete', {
     reason,
-    checks: checks.map((check) => ({
-      subject: check.subject,
-      reason: check.reason,
-      priority: check.priority,
-    })),
+    positions: state.getPositions(scope).length,
+    openOrders: state.getOpenOrders(scope).length,
+    balances: state.getBalances(scope).length,
   });
 }
 
-function logAccountState(reason: string): void {
-  const account = state.getAccount(scope);
-  console.log(new Date(), 'account_state', projectAccount(account, reason));
+function onPrivateEvent(event: BinanceUsdmPrivateEvent): void {
+  logPositionEntityChanges(
+    `ws:${event.eventType}`,
+    state.ingest(binance.ws.privateEvent(scope, event)),
+  );
 }
 
-function projectAccount(account: ExchangeAccount, reason: string): object {
-  return {
+function logPositionEntityChanges(
+  reason: string,
+  changeOrChanges: ChangeSet | ChangeSet[],
+): void {
+  const changes = Array.isArray(changeOrChanges)
+    ? changeOrChanges
+    : [changeOrChanges];
+
+  for (const change of changes) {
+    for (const event of change.entityChanges) {
+      logPositionEntityChange(reason, event);
+    }
+  }
+}
+
+function logPositionEntityChange(
+  reason: string,
+  event: PositionEntityChange,
+): void {
+  console.log(new Date(), 'position_entity_event', {
     reason,
-    readyToTrade: account.readyToTrade,
-    positions: account.positions.map((position) => ({
-      symbol: position.symbol,
-      side: position.exchangePositionSide,
-      strategySide: position.strategySide,
-      quantity: position.quantity,
-      entry: position.averageEntry,
-    })),
-    openOrders: account.openOrders.map((order) => ({
-      symbol: order.symbol,
-      kind: order.kind,
-      side: order.side,
-      status: order.status,
-      customOrderId: order.customOrderId,
-      customTriggerOrderId: order.customTriggerOrderId,
-      quantity: order.quantity,
-      price: order.price,
-      triggerPrice: order.triggerPrice,
-    })),
-    balances: account.balances.map((balance) => ({
-      asset: balance.asset,
-      wallet: balance.walletBalance,
-      available: balance.availableBalance,
-    })),
-    stateChecks: account.stateChecks.map((check) => ({
-      subject: check.subject,
-      reason: check.reason,
-      priority: check.priority,
-    })),
+    type: event.type,
+    key: event.key,
+    changedFields: event.changedFields,
+    quantityDelta: 'quantityDelta' in event ? event.quantityDelta : undefined,
+    previous: summarizePosition(event.previous),
+    current: summarizePosition(event.current),
+    sequence: event.sequence,
+  });
+}
+
+function summarizePosition(
+  position: NormalizedPosition | undefined,
+): object | undefined {
+  if (!position) {
+    return undefined;
+  }
+
+  return {
+    symbol: position.symbol,
+    side: position.exchangePositionSide,
+    strategySide: position.strategySide,
+    quantity: position.quantity,
+    signedQuantity: position.signedQuantity,
+    entry: position.averageEntry,
+    mark: position.markPrice,
+    leverage: position.leverage,
+    updatedAtMs: position.updatedAtMs,
+    source: position.source,
   };
 }
 
 async function main(): Promise<void> {
-  await refreshFromRest('startup');
+  await refreshFromRest('startup', { emitEntityChanges: 'none' });
 
   ws.on('formattedMessage', (event) => {
     onPrivateEvent(event as BinanceUsdmPrivateEvent);
@@ -182,18 +160,15 @@ async function main(): Promise<void> {
     state.recordStreamReconnected(scope, {
       reason: 'Binance private WebSocket stream reconnected',
     });
-    await checkStateFromRest('reconnected');
+    await refreshFromRest('reconnected');
   });
 
   ws.on('exception', (error: unknown) => {
     console.error(new Date(), 'Binance websocket error:', error);
   });
 
-  ws.subscribeUsdFuturesUserDataStream();
-
-  setInterval(() => {
-    logAccountState('interval');
-  }, 10_000);
+  await ws.subscribeUsdFuturesUserDataStream();
+  console.log(new Date(), 'listening_for_binance_usdm_private_events');
 }
 
 void main().catch((error) => {

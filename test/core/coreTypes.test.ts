@@ -195,6 +195,7 @@ describe('core type contracts', () => {
       itemsRemoved: 0,
       itemsMarkedStale: 0,
       confidenceChanged: true,
+      entityChanges: [],
       warnings: [],
     };
 

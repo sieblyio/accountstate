@@ -68,6 +68,10 @@ export interface SetSnapshotOptions {
    * Full provenance override when the caller has richer source metadata.
    */
   provenance?: Provenance;
+  /**
+   * Controls whether this reducer operation returns entity-level changes.
+   */
+  emitEntityChanges?: 'default' | 'none';
 }
 
 /**
@@ -98,6 +102,10 @@ export interface StreamUpdateOptions {
    * Full provenance override when the caller has already normalized it.
    */
   provenance?: Provenance;
+  /**
+   * Controls whether this reducer operation returns entity-level changes.
+   */
+  emitEntityChanges?: 'default' | 'none';
 }
 
 /**
@@ -312,6 +320,7 @@ export function createSetSnapshotInput<TSubject extends SnapshotSubject>(
     source: options.source ?? defaults.source,
     coverage: options.coverage,
     provenance: options.provenance,
+    emitEntityChanges: options.emitEntityChanges,
   };
 }
 
@@ -335,6 +344,7 @@ export function createStreamUpdateSnapshotInput<
     asOfMs: provenance.exchangeEventTimeMs ?? provenance.receivedAtMs,
     source: provenance.source,
     provenance,
+    emitEntityChanges: options.emitEntityChanges,
   };
 }
 
@@ -550,6 +560,7 @@ export function createUnsupportedFactChangeSet(
     itemsRemoved: 0,
     itemsMarkedStale: 0,
     confidenceChanged: false,
+    entityChanges: [],
     warnings: [
       {
         name: 'unsupported_account_fact',

@@ -44,6 +44,11 @@ export interface BinanceRestSnapshotOptions {
   coverage?: SnapshotCoverage;
   snapshotId?: string;
   receivedAtMs?: TimestampMs;
+  /**
+   * Optional. Use 'none' to suppress entity-change events when applying a REST
+   * overwrite/sync that should not look like live account activity.
+   */
+  emitEntityChanges?: 'default' | 'none';
 }
 
 export interface BinanceStreamEventOptions {
@@ -1232,6 +1237,7 @@ function createRestSnapshot<T>(
     source: 'rest',
     asOfMs,
     coverage: options?.coverage,
+    emitEntityChanges: options?.emitEntityChanges,
     provenance: {
       source: 'rest',
       receivedAtMs: options?.receivedAtMs ?? asOfMs,

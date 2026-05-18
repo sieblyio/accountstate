@@ -72,6 +72,7 @@ import type {
   StreamUpdateOptions,
 } from './exchangeAccount.js';
 import type {
+  AccountEntityChange,
   AccountScope,
   AccountChangeSubject,
   AccountView,
@@ -87,6 +88,7 @@ import type {
   NormalizedPosition,
   OrderIdentity,
   OrderIdentityFilter,
+  PositionChangedField,
   PositionLifecycle,
   Provenance,
   SnapshotCoverage,
@@ -154,6 +156,7 @@ export class ExchangeAccountStateStore {
   #invariants: StateInvariant[];
   #clock: () => TimestampMs;
   #invariantOptions: InvariantRuntimeOptions;
+  #entityChangeSequence = 0;
 
   /**
    * Create an empty in-memory account store.
@@ -572,6 +575,14 @@ export class ExchangeAccountStateStore {
     const confidenceBefore = state.confidence;
     const changedBeforeRows = changeSet.changed;
     const countsBefore = getChangedItemCount(changeSet);
+    const positionsBefore =
+      input.subject === 'positions' && input.emitEntityChanges !== 'none'
+        ? clonePositionMap(state.positions)
+        : undefined;
+    const terminalPositionRows =
+      positionsBefore && input.subject === 'positions'
+        ? getTerminalPositionRows(input)
+        : undefined;
 
     switch (input.subject) {
       case 'positions':
@@ -665,6 +676,18 @@ export class ExchangeAccountStateStore {
 
     if (input.subject === 'positions' || input.subject === 'openOrders') {
       this.#reconcileLifecycles(state, input.scope);
+    }
+
+    if (positionsBefore) {
+      changeSet.entityChanges.push(
+        ...this.#createPositionEntityChanges(
+          input.scope,
+          positionsBefore,
+          state.positions,
+          input.provenance,
+          terminalPositionRows ?? new Map(),
+        ),
+      );
     }
 
     return changeSet;
@@ -1358,6 +1381,162 @@ export class ExchangeAccountStateStore {
     state.lifecycles = lifecycles;
   }
 
+  #createPositionEntityChanges(
+    scope: AccountScope,
+    before: Map<string, NormalizedPosition>,
+    after: Map<string, NormalizedPosition>,
+    provenance: Provenance | undefined,
+    terminalRows: Map<string, NormalizedPosition>,
+  ): AccountEntityChange[] {
+    const changes: AccountEntityChange[] = [];
+
+    for (const [storageKey, previous] of before.entries()) {
+      const current = after.get(storageKey);
+      if (!current) {
+        changes.push(
+          this.#createPositionClosedChange(
+            scope,
+            previous,
+            terminalRows.get(storageKey),
+            provenance,
+          ),
+        );
+        continue;
+      }
+
+      if (previous.strategySide !== current.strategySide) {
+        changes.push(
+          this.#createPositionClosedChange(
+            scope,
+            previous,
+            undefined,
+            provenance,
+          ),
+        );
+        changes.push(
+          this.#createPositionOpenedChange(scope, current, undefined, provenance),
+        );
+        continue;
+      }
+
+      const changedFields = getChangedPositionFields(previous, current);
+      if (changedFields.length === 0) {
+        continue;
+      }
+
+      const quantityCompare = compareAbsoluteDecimalStrings(
+        previous.quantity,
+        current.quantity,
+      );
+      if (quantityCompare < 0) {
+        changes.push({
+          entity: 'position',
+          type: 'position_quantity_increased',
+          scope: copyScope(scope),
+          key: getPositionEntityKey(current),
+          previous: clonePosition(previous),
+          current: clonePosition(current),
+          quantityDelta: absoluteDecimalDelta(
+            previous.quantity,
+            current.quantity,
+          ),
+          changedFields,
+          provenance: current.provenance ?? provenance,
+          sequence: this.#nextEntityChangeSequence(),
+        });
+        continue;
+      }
+
+      if (quantityCompare > 0) {
+        changes.push({
+          entity: 'position',
+          type: 'position_quantity_decreased',
+          scope: copyScope(scope),
+          key: getPositionEntityKey(current),
+          previous: clonePosition(previous),
+          current: clonePosition(current),
+          quantityDelta: absoluteDecimalDelta(
+            previous.quantity,
+            current.quantity,
+          ),
+          changedFields,
+          provenance: current.provenance ?? provenance,
+          sequence: this.#nextEntityChangeSequence(),
+        });
+        continue;
+      }
+
+      changes.push({
+        entity: 'position',
+        type: 'position_updated',
+        scope: copyScope(scope),
+        key: getPositionEntityKey(current),
+        previous: clonePosition(previous),
+        current: clonePosition(current),
+        changedFields,
+        provenance: current.provenance ?? provenance,
+        sequence: this.#nextEntityChangeSequence(),
+      });
+    }
+
+    for (const [storageKey, current] of after.entries()) {
+      if (before.has(storageKey)) {
+        continue;
+      }
+
+      changes.push(
+        this.#createPositionOpenedChange(scope, current, undefined, provenance),
+      );
+    }
+
+    return changes;
+  }
+
+  #createPositionOpenedChange(
+    scope: AccountScope,
+    current: NormalizedPosition,
+    previous: NormalizedPosition | undefined,
+    provenance: Provenance | undefined,
+  ): AccountEntityChange {
+    return {
+      entity: 'position',
+      type: 'position_opened',
+      scope: copyScope(scope),
+      key: getPositionEntityKey(current),
+      previous: previous ? clonePosition(previous) : undefined,
+      current: clonePosition(current),
+      changedFields: getOpenedPositionFields(current),
+      provenance: current.provenance ?? provenance,
+      sequence: this.#nextEntityChangeSequence(),
+    };
+  }
+
+  #createPositionClosedChange(
+    scope: AccountScope,
+    previous: NormalizedPosition,
+    current: NormalizedPosition | undefined,
+    provenance: Provenance | undefined,
+  ): AccountEntityChange {
+    return {
+      entity: 'position',
+      type: 'position_closed',
+      scope: copyScope(scope),
+      key: getPositionEntityKey(previous),
+      previous: clonePosition(previous),
+      current: current ? clonePosition(current) : undefined,
+      changedFields: current
+        ? getChangedPositionFields(previous, current)
+        : ['quantity'],
+      provenance: current?.provenance ?? previous.provenance ?? provenance,
+      sequence: this.#nextEntityChangeSequence(),
+    };
+  }
+
+  #nextEntityChangeSequence(): number {
+    this.#entityChangeSequence += 1;
+    return this.#entityChangeSequence;
+  }
+
   /**
    * Look up state without creating it, used by reads so unknown scopes remain
    * unknown instead of becoming empty-but-synced.
@@ -1549,6 +1728,128 @@ function isTerminalPosition(row: Row): row is NormalizedPosition {
   );
 }
 
+const POSITION_CHANGED_FIELDS: PositionChangedField[] = [
+  'exchangePositionSide',
+  'strategySide',
+  'quantity',
+  'signedQuantity',
+  'averageEntry',
+  'markPrice',
+  'liquidationPrice',
+  'marginMode',
+  'leverage',
+];
+
+function clonePositionMap(
+  positions: Map<string, NormalizedPosition>,
+): Map<string, NormalizedPosition> {
+  return new Map(
+    Array.from(positions.entries()).map(([key, position]) => [
+      key,
+      clonePosition(position),
+    ]),
+  );
+}
+
+function getTerminalPositionRows(
+  input: SnapshotInput<unknown>,
+): Map<string, NormalizedPosition> {
+  const terminals = new Map<string, NormalizedPosition>();
+
+  for (const row of input.rows) {
+    if (
+      isNormalizedPosition(row) &&
+      isSameScope(input.scope, row) &&
+      isTerminalPosition(row)
+    ) {
+      terminals.set(getPositionKey(row), clonePosition(row));
+    }
+  }
+
+  return terminals;
+}
+
+function getPositionEntityKey(
+  position: NormalizedPosition,
+): AccountEntityChange['key'] {
+  return {
+    symbol: position.symbol,
+    exchangePositionSide: position.exchangePositionSide,
+    strategySide: position.strategySide,
+  };
+}
+
+function getChangedPositionFields(
+  previous: NormalizedPosition,
+  current: NormalizedPosition,
+): PositionChangedField[] {
+  return POSITION_CHANGED_FIELDS.filter(
+    (field) => previous[field] !== current[field],
+  );
+}
+
+function getOpenedPositionFields(
+  position: NormalizedPosition,
+): PositionChangedField[] {
+  return POSITION_CHANGED_FIELDS.filter(
+    (field) => position[field] !== undefined,
+  );
+}
+
+function compareAbsoluteDecimalStrings(a: string, b: string): -1 | 0 | 1 {
+  const scale = getMaxFractionScale(a, b);
+  const scaledA = toScaledAbsoluteBigInt(a, scale);
+  const scaledB = toScaledAbsoluteBigInt(b, scale);
+
+  if (scaledA < scaledB) {
+    return -1;
+  }
+  if (scaledA > scaledB) {
+    return 1;
+  }
+  return 0;
+}
+
+function absoluteDecimalDelta(a: string, b: string): string {
+  const scale = getMaxFractionScale(a, b);
+  const scaledA = toScaledAbsoluteBigInt(a, scale);
+  const scaledB = toScaledAbsoluteBigInt(b, scale);
+  const delta = scaledA > scaledB ? scaledA - scaledB : scaledB - scaledA;
+
+  return scaledBigIntToDecimalString(delta, scale);
+}
+
+function getMaxFractionScale(...values: string[]): number {
+  return Math.max(
+    0,
+    ...values.map((value) => {
+      const [, fraction = ''] = value.replace(/^[+-]/, '').split('.');
+      return fraction.length;
+    }),
+  );
+}
+
+function toScaledAbsoluteBigInt(value: string, scale: number): bigint {
+  const unsigned = value.trim().replace(/^[+-]/, '');
+  const [integer = '0', fraction = ''] = unsigned.split('.');
+  const paddedFraction = fraction.padEnd(scale, '0').slice(0, scale);
+  const digits = `${integer}${paddedFraction}`.replace(/^0+(?=\d)/, '');
+
+  return BigInt(digits || '0');
+}
+
+function scaledBigIntToDecimalString(value: bigint, scale: number): string {
+  if (scale === 0) {
+    return value.toString();
+  }
+
+  const raw = value.toString().padStart(scale + 1, '0');
+  const integer = raw.slice(0, -scale);
+  const fraction = raw.slice(-scale).replace(/0+$/, '');
+
+  return fraction ? `${integer}.${fraction}` : integer;
+}
+
 function isZeroDecimalString(value: string): boolean {
   return Number(value) === 0;
 }
@@ -1566,6 +1867,7 @@ function createEmptyChangeSet(scope: AccountScope): ChangeSet {
     itemsRemoved: 0,
     itemsMarkedStale: 0,
     confidenceChanged: false,
+    entityChanges: [],
     warnings: [],
   };
 }

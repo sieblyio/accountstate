@@ -10,6 +10,8 @@ For a complete Binance USD-M account-state workflow using startup REST snapshots
 private WebSocket account updates, local submission outcomes, and reconnect
 REST refresh, see
 [Binance USD-M integration playbook](./binance-usdm-playbook.md).
+For a runnable one-file example, see
+[examples/binance-usdm-exchange-account-state.ts](../../examples/binance-usdm-exchange-account-state.ts).
 For TP/SL/DCA managers and similar live workflows, also read the
 [position manager workflow](../workflows/position-manager.md). That page
 describes the symbol-side queueing and confirmation model that should live in
