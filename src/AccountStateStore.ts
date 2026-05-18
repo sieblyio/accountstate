@@ -7,6 +7,10 @@ import {
 import { getUnrealisedPNL } from './util/math.js';
 
 /**
+ * @deprecated Use `ExchangeAccountStateStore` for new REST-plus-WebSocket
+ * exchange integrations. This original direct-cache store remains available
+ * for backwards compatibility.
+ *
  * This abstraction layer is a state cache for account state (so we know what changed when an event comes in).
  *
  * Since it's mostly a cache of information also available on the exchange (via a REST API call), none of it needs to be persisted.
@@ -191,19 +195,25 @@ export class AccountStateStore<
     let totalHedged = 0;
 
     for (const symbol in this.accountPositionState) {
-      let positionsForSymbol = 0;
+      let hasLongPosition = false;
+      let hasShortPosition = false;
       for (const posSide in this.accountPositionState[symbol]) {
         const position =
           this.accountPositionState[symbol][posSide as EnginePositionSide];
         if (position?.assetQty) {
           total++;
-          positionsForSymbol++;
+          if (posSide === 'LONG') {
+            hasLongPosition = true;
+          }
+          if (posSide === 'SHORT') {
+            hasShortPosition = true;
+          }
         }
+      }
 
-        if (positionsForSymbol === 2) {
-          console.log(`${symbol} has a long and short position!`);
-          totalHedged++;
-        }
+      if (hasLongPosition && hasShortPosition) {
+        console.log(`${symbol} has a long and short position!`);
+        totalHedged++;
       }
     }
 

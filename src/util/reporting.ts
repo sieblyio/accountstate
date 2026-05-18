@@ -1,11 +1,11 @@
-import { AccountStateStore } from '../AccountStateStore';
+import { AccountStateStore } from '../AccountStateStore.js';
 import {
   getUnrealisedPnl,
   getUnrealsedPnlPct,
   getDepthPercentForAllPositions,
-} from './position.math';
-import { hasStatusCode, postDataToUrl } from './postDataToURL';
-import { isNumber } from './type-guards';
+} from './position.math.js';
+import { hasStatusCode, postDataToUrl } from './postDataToURL.js';
+import { isNumber } from './type-guards.js';
 
 export interface BalanceUpdateEventData {
   balance: number;

@@ -1,6 +1,6 @@
-import { EngineSimplePosition } from '../lib/types/position';
-import { toFixedNumber } from './math';
-import { DepthSummary, PositionDepthState } from './position.types';
+import type { EngineSimplePosition } from '../lib/types/position.js';
+import { toFixedNumber } from './math.js';
+import type { DepthSummary, PositionDepthState } from './position.types.js';
 
 /** Return the sum the unrealised profit/loss across all active positions */
 export function getUnrealisedPnl(

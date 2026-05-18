@@ -1,4 +1,4 @@
-# Typescript Account State Store for Trading Applications
+# TypeScript Account State Store for Trading Applications
 
 [![Build & Test](https://github.com/tiagosiebler/accountstate/actions/workflows/test.yml/badge.svg)](https://github.com/tiagosiebler/accountstate/actions/workflows/test.yml)
 [![npm version](https://img.shields.io/npm/v/accountstate)][1]
@@ -9,36 +9,50 @@
 
 [1]: https://www.npmjs.com/package/accountstate
 
-A TypeScript utility class for managing cryptocurrency exchange account state in-memory. Designed for trading bots, portfolio trackers, and any application that needs to maintain real-time account state across positions, orders, and balances.
+A TypeScript in-memory account state store for crypto exchange applications.
+Feed it the REST snapshots and private WebSocket account events your app already
+receives, then query one current account view for positions, open orders,
+balances, fills, readiness, and state checks.
 
 ## Table of Contents
 
-- [Features](#features)
+- [What It Tracks](#what-it-tracks)
 - [Installation](#installation)
-- [Best Practices](#best-practices)
 - [Quick Start](#quick-start)
-- [Core API](#core-api)
-  - [Balance Management](#balance-management)
-  - [Position Management](#position-management)
-  - [Order Management](#order-management)
-  - [Leverage Management](#leverage-management)
-  - [Price Updates & P&L](#price-updates--pl)
-- [Custom Metadata](#custom-metadata)
-- [Persistence](#persistence)
+- [Using Exchange Adapters](#using-exchange-adapters)
+- [Core Concepts](#core-concepts)
+- [Advanced Usage](#advanced-usage)
+- [Docs](#docs)
+- [Legacy Lightweight Store](#legacy-lightweight-store)
 - [Running Examples](#running-examples)
 - [Contributions & Thanks](#contributions--thanks)
 - [License](#license)
 
-## Features
+## What It Tracks
 
-- **Account Balance Tracking** - Monitor wallet balance changes
-- **Position Management** - Track long/short positions with real-time P&L
-- **Order State Management** - Monitor active, filled, and cancelled orders
-- **Symbol-based Organization** - Organize data by trading pairs
-- **Custom Metadata Storage** - Store custom data per symbol/position
-- **Exchange Agnostic** - Works with any exchange (Binance, Bybit, etc.)
-- **Persistence Ready** - Built-in persistence hooks for custom storage
-- **TypeScript Support** - Full type safety with generics
+`accountstate` keeps one in-memory view of the exchange account state you feed
+into it:
+
+- **Positions** from REST snapshots and private WebSocket position updates.
+- **Open orders** from REST open-order snapshots and private WebSocket order
+  updates, with local accepted submissions kept as provisional rows until REST
+  or WebSocket confirmation arrives.
+- **Balances** from REST balance snapshots and private WebSocket balance
+  updates.
+- **Fills/trades** from REST trade history or private WebSocket execution
+  events.
+- **Readiness** through `readyToTrade`, trust flags, and actionable
+  `stateChecks`.
+- **Exchange adapter payloads** through subpaths such as `accountstate/binance`
+  and `accountstate/bybit`, so raw REST responses and private WebSocket events
+  can be passed into the store.
+- **Advanced ownership metadata** when your app registers a parser for its own
+  custom order IDs.
+
+The store is intentionally exchange-client agnostic. You can map exchange data
+yourself, or use an exchange-specific adapter to pass raw REST responses and
+private WebSocket events into the store as your client receives them.
+`accountstate` keeps one current account view either way.
 
 ## Installation
 
@@ -48,319 +62,341 @@ npm install accountstate
 yarn add accountstate
 ```
 
-## Best Practices
+Exchange adapter subpaths may have optional peer dependencies. Install the SDK
+for the adapter you import, if you haven't already:
 
-1. **Initial Sync**: Always sync from REST API before starting WebSocket streams
-2. **Reconnection Handling**: Re-sync state after WebSocket reconnections
-3. **Error Handling**: Implement proper error handling for API calls
-4. **Persistence**: Use persistence for custom metadata that can't be restored
-5. **Performance**: Use the built-in filtering and sorting methods for efficiency
-6. **Type Safety**: Define custom metadata interfaces for better type safety
+```bash
+# Binance
+npm install accountstate binance
+
+# Bybit
+npm install accountstate bybit-api
+```
+
+Looking for an adapter we haven't added yet? Build your own, or open an issue
+to request it.
 
 ## Quick Start
 
+Most exchange applications already have two feeds into account state:
+
+- REST API responses for the latest account snapshot.
+- Private WebSocket account events for live changes.
+
+In an ideal system these allow for a powerful event-driven architecture. Use the REST API to backfill initial state. Once your local state store is in sync, use the WebSocket stream to feed realtime updates into the store, passively keeping your local state in sync with exchange state.
+
+When your app needs balances, positions, or order state, read the local store
+instead of blocking on a REST call.
+
+The `ExchangeAccountStateStore` is designed around that flow. Your app owns the
+REST clients, WebSocket clients, API keys, reconnects, retries, and scheduling.
+`accountstate` only applies the account-state facts you give it and exposes a
+current read model.
+
 ```typescript
-import { AccountStateStore } from 'accountstate';
+import { ExchangeAccountStateStore, type AccountScope } from 'accountstate';
 
-// Create a new account state store
-const accountState = new AccountStateStore();
+const scope: AccountScope = {
+  exchange: 'binance',
+  accountId: 'primary',
+  product: 'usdm',
+  environment: 'mainnet',
+};
 
-// Set wallet balance
-accountState.setWalletBalance(10000);
+const state = new ExchangeAccountStateStore();
 
-// Track a position
-accountState.setActivePosition('BTCUSDT', 'LONG', {
-  symbol: 'BTCUSDT',
-  timestampMs: Date.now(),
-  positionSide: 'LONG',
-  orderPositionSide: 'LONG',
-  positionPrice: 45000,
-  assetQty: 0.1,
-  value: 4500,
-  valueUpnl: 0,
-  liquidationPrice: 40000,
-  marginValue: 4500,
+// Initial and periodic REST snapshots.
+state.setPositions(scope, normalizedPositions);
+state.setOpenOrders(scope, normalizedOpenOrders);
+state.setBalances(scope, normalizedBalances);
+
+// Private WebSocket updates.
+state.applyOrderUpdate(scope, normalizedOrderUpdate);
+state.applyPositionUpdate(scope, normalizedPositionUpdate);
+state.applyBalanceUpdate(scope, normalizedBalanceUpdate);
+
+// Reconnects or known stream gaps mark state that should be checked via REST.
+state.recordStreamReconnected(scope, {
+  reason: 'private WebSocket stream restarted',
 });
 
-// Track an order
-accountState.upsertActiveOrder({
-  exchangeOrderId: '12345',
-  customOrderId: 'my-order-1',
-  symbol: 'BTCUSDT',
-  orderSide: 'BUY',
-  orderType: 'LIMIT',
-  positionSide: 'LONG',
-  status: 'NEW',
-  price: 44000,
-  originalQuantity: 0.05,
-  executedQuantity: 0,
-  averagePrice: 0,
-  createdAtMs: Date.now(),
-  updatedAtMs: Date.now(),
-  isreduceOnly: false,
-});
+const account = state.getAccount(scope); // current account view
 
-// Get account summary
-const summary = accountState.getSessionSummary(10000);
-console.log('Account Summary:', summary);
-```
-
-Or, check examples in the [./examples](./examples) folder.
-
-## Core API
-
-### Balance Management
-
-```typescript
-// Set and get wallet balance
-accountState.setWalletBalance(10000);
-const balance = accountState.getWalletBalance(); // 10000
-
-// Track balance changes
-accountState.storePreviousBalance();
-accountState.setWalletBalance(10500);
-const previousBalance = accountState.getPreviousBalance(); // 10000
-```
-
-### Position Management
-
-```typescript
-// Check if symbol has any position
-const hasPosition = accountState.isSymbolInAnyPosition('BTCUSDT');
-
-// Check specific side position
-const hasLongPosition = accountState.isSymbolSideInPosition('BTCUSDT', 'LONG');
-
-// Get specific position
-const longPosition = accountState.getActivePosition('BTCUSDT', 'LONG');
-
-// Get all positions
-const allPositions = accountState.getAllPositions();
-
-// Get position counts
-const { total, totalHedged } = accountState.getTotalActivePositions();
-
-// Delete a position
-accountState.deleteActivePosition('BTCUSDT', 'LONG');
-```
-
-### Order Management
-
-```typescript
-// Get all orders
-const allOrders = accountState.getOrders();
-
-// Get active orders only
-const activeOrders = accountState.getActiveOrders();
-
-// Get orders for specific symbol
-const btcOrders = accountState.getOrdersForSymbol('BTCUSDT');
-
-// Get orders for symbol and side
-const btcBuyOrders = accountState.getOrdersForSymbolSide('BTCUSDT', 'BUY');
-
-// Get specific order
-const order = accountState.getOrder('12345');
-
-// Get orders by status
-const newOrders = accountState.getOrdersByStatus('NEW');
-
-// Get orders sorted by price
-const ordersByPrice = accountState.getOrdersSortedByPrice(true); // ascending
-
-// Clear all orders
-accountState.clearAllOrders();
-```
-
-### Leverage Management
-
-```typescript
-// Set symbol leverage
-accountState.setSymbolLeverage('BTCUSDT', 10);
-
-// Get symbol leverage
-const leverage = accountState.getSymbolLeverage('BTCUSDT'); // 10
-
-// Get all leverage settings
-const allLeverage = accountState.getSymbolLeverageCache();
-```
-
-### Price Updates & P&L
-
-```typescript
-// Process price update to recalculate unrealized P&L
-accountState.processPriceEvent({
-  symbol: 'BTCUSDT',
-  price: 46000,
-  timestamp: Date.now(),
-});
-
-// Get session summary with P&L calculations
-const summary = accountState.getSessionSummary(startingBalance);
-console.log('Realized P&L:', summary.account.pnlState.realisedPnl);
-console.log('Unrealized P&L:', summary.account.pnlState.unrealisedPnl);
-```
-
-## Custom Metadata
-
-### Custom data
-
-This storage class also supports per-symbol "metadata". This is a key:value object you can use to store any information related to that symbol's position.
-
-This is typically custom data that an exchange might not have any knowledge of.
-
-Some examples:
-
-- How many entries have happened on the short side of a symbol's position.
-- When did this position first open.
-- What state is the trailing SL mechanism in.
-- What price did the last position for this symbol close.
-
-```typescript
-// Define your metadata type
-interface MyPositionMetadata {
-  leaderId: string;
-  entryCount: number;
-  lastEntryPrice: number;
-  strategy: string;
+if (!account.readyToTrade) {
+  for (const check of account.stateChecks) {
+    await checkStateFromRest(check);
+  }
+  return;
 }
 
-// Create store with custom metadata type
-const accountState = new AccountStateStore<MyPositionMetadata>();
-
-// Set metadata for a symbol
-accountState.setSymbolMetadata('BTCUSDT', {
-  leaderId: 'trader-123',
-  entryCount: 3,
-  lastEntryPrice: 45000,
-  strategy: 'DCA',
-});
-
-// Get metadata
-const metadata = accountState.getSymbolMetadata('BTCUSDT');
-
-// Update specific metadata value
-accountState.setSymbolMetadataValue('BTCUSDT', 'entryCount', 4);
-
-// Get all symbols with metadata
-const symbolsWithMetadata = accountState.getSymbolsWithMetadata();
-
-// Delete metadata
-accountState.deletePositionMetadata('BTCUSDT');
+planner.plan(account);
 ```
 
-## Persistence
-
-The primary purpose of this module is to cache this state in-memory. Most of this can easily be fetched via the REST API, so persistence for the majority of this data is no concern.
-
-However, the concept of per-symbol "metadata" is a custom one that cannot be easily restored once lost. If you use any of the metadata-related set/delete methods in the module, `isPendingPersist()` will automatically be set to return `true`.
-
-This is a good way to check if there's a state change to persist somewhere, but it's up to you to implement the persistence mechanism based on your own needs. One way is to debounce an action to `getAllSymbolMetadata()`, persist it somewhere, and finally call `setIsPendingPersist(false)`.
-
-There's no wrong way to do this. Here's a high level example that extends the account state store to automatically persist to Redis on a timer, if the stored metadata changed:
+The common query methods are intentionally direct:
 
 ```typescript
-const PERSIST_ACCOUNT_POSITION_METADATA_EVERY_MS = 250;
+const positions = state.getPositions(scope);
+const openOrders = state.getOpenOrders(scope, { symbol: 'BTCUSDT' });
+const order = state.getOrder(scope, { customOrderId: 'my-order-id' });
+const balance = state.getBalance(scope, 'USDT');
+const targetStillOpen = state.hasOpenOrderIdentity(scope, {
+  customOrderId: 'my-order-id',
+});
+```
 
-export interface EnginePositionMetadata {
-  leaderId: string;
-  leaderName: string;
-  entryCountLong: number;
-  entryCountShort: number;
+Open-order reads default to trusted exchange-confirmed rows. If you need local
+accepted submissions for duplicate suppression or diagnostics, opt in:
+
+```typescript
+const visibleWhilePending = state.getOpenOrders(scope, {
+  trust: 'includeProvisional',
+});
+```
+
+Positions, open orders, and balances are required for `readyToTrade`. Fills are
+refreshed in the background unless you call
+`getAccount(scope, { requireFills: true })`.
+
+## Using Exchange Adapters
+
+Adapters let you pass raw exchange SDK/API objects directly into the store. The
+adapter normalizes the exchange payload; `ingest()` applies the resulting
+updates in order. Your app can still map normalized rows itself, or use one of
+the exchange-specific adapters as the place where raw REST responses and private
+WebSocket events are passed in as your client receives them.
+
+```typescript
+import { ExchangeAccountStateStore, type AccountScope } from 'accountstate';
+import { binance } from 'accountstate/binance';
+
+const state = new ExchangeAccountStateStore();
+const scope: AccountScope = {
+  exchange: 'binance',
+  accountId: 'primary',
+  product: 'usdm',
+  environment: 'mainnet',
+};
+
+state.ingest(binance.rest.positions(scope, rawPositionRows));
+state.ingest(binance.rest.openOrders(scope, rawOpenOrderRows));
+state.ingest(binance.rest.openAlgoOrders(scope, rawOpenAlgoOrderRows));
+state.ingest(binance.rest.accountBalances(scope, rawAccountAssetRows));
+state.ingest(binance.rest.accountTrades(scope, rawTradeRows));
+state.ingest(binance.ws.privateEvent(scope, formattedPrivateEvent));
+
+for (const route of binance.ws.routePrivateEvent(formattedPrivateEvent)) {
+  handleRouteInYourApp(route);
 }
 
-/**
- * This abstraction layer extends the open source "account state store" class,
- * adding a persistence mechanism so nothing is lost after restart.
- *
- * Data is stored in Redis, keyed by the accountId.
- *
- * The RedisPersistanceAPI is a custom implementation around the ioredis client.
- */
-export class PersistedAccountStateStore extends AccountStateStore<EnginePositionMetadata> {
-  private redisAPI: RedisPersistanceAPI<'positionMetadata'>;
+const account = state.getAccount(scope);
+```
 
-  private didRestorePositionMetadata = false;
+The Bybit V5 linear adapter follows the same flow:
 
-  private accountId: string;
+```typescript
+import { bybit } from 'accountstate/bybit';
 
-  constructor(accountId: string, redisAPI: RedisPersistanceAPI) {
-    super();
+state.ingest(bybit.rest.positions(scope, positionResponse.result.list));
+state.ingest(bybit.rest.activeOrders(scope, activeOrdersResponse.result.list));
+state.ingest(bybit.rest.walletBalances(scope, walletResponse.result.list));
+state.ingest(bybit.ws.privateEvent(scope, privateEvent));
 
-    this.redisAPI = redisAPI;
-    this.accountId = accountId;
-
-    /** Start the persistence timer and also fetch any initial state, if any is found **/
-    this.startPersistPositionMetadataTimer();
-  }
-
-  /** Call this during bootstrap to ensure we've rehydrated before resuming */
-  async restorePersistedData(): Promise<void> {
-    // Query persisted position metadata from redis
-    const storedDataResult = await this.redisAPI.fetchJSONForAccountKey(
-      'positionMetadata',
-      this.accountId,
-    );
-
-    if (storedDataResult?.data && typeof storedDataResult.data === 'object') {
-      this.setAllSymbolMetadata(storedDataResult.data);
-    } else {
-      console.log(
-        `No state data in redis for "${this.accountId}" - nothing to restore`,
-      );
-    }
-
-    // Overwrite local store with restored data
-    this.didRestorePositionMetadata = true;
-  }
-
-  private startPersistPositionMetadataTimer(): void {
-    setInterval(async () => {
-      if (!this.didRestorePositionMetadata) {
-        await this.restorePersistedData();
-      }
-
-      if (!this.isPendingPersist()) {
-        return;
-      }
-
-      try {
-        this.setIsPendingPersist(false);
-        await this.redisAPI.writeJSONForAccountKey(
-          'positionMetadata',
-          this.accountId,
-          this.getAllSymbolMetadata(),
-        );
-
-        console.log(`Saved position metadata to redis`);
-      } catch (e) {
-        console.error(
-          `Exception writing position metadata to redis: ${sanitiseError(e)}`,
-        );
-        this.setIsPendingPersist(true);
-      }
-    }, PERSIST_ACCOUNT_POSITION_METADATA_EVERY_MS);
-  }
+for (const route of bybit.ws.routePrivateEvent(privateEvent)) {
+  handleRouteInYourApp(route);
 }
 ```
+
+For Binance USD-M private WebSocket events, `binance.ws.privateEvent()` handles
+`ACCOUNT_UPDATE` balance/position updates, `ORDER_TRADE_UPDATE` order/fill
+updates, Algo updates, and lightweight trade events. When an Algo order
+triggers, Binance emits normal order updates for the generated order; the
+adapter keeps that regular order separate from the terminal Algo row.
+
+Adapters also expose `ws.routePrivateEvent(event)` for row-level private
+WebSocket routing and `ws.summarizePrivateEvent(event)` for small logging
+summaries. Route decisions distinguish active order rows, terminal/non-active
+order rows, execution fills, position updates, and balance updates. When the
+exchange event identifies a position side, keep that side in your workflow key
+instead of scheduling only by symbol. Route decisions do not schedule work or
+make recovery decisions; your application chooses how to react.
+
+For Binance, pass the SDK-formatted private events emitted on
+`formattedMessage`. Do not feed both formatted events and raw one-letter events
+for the same stream into accountstate, or your application will process the
+same exchange fact twice.
+
+`routePrivateEvent()` only returns facts from the private event rows. The example
+`handleRouteInYourApp()` call represents your own scheduling code.
+
+If you only need to react to position opens, size changes, updates, and closes,
+read `change.entityChanges` from the store write. Route helpers are optional
+for application workflow decisions such as pending order confirmations.
+
+Adapters are pure: they do not create REST clients, WebSocket clients, timers,
+retries, API keys, or stream sessions. They only accept objects you already
+received from the exchange SDK/API and return account-state updates.
+Submission outcome helpers follow the same rule: they translate responses or
+errors your app already received, but never submit, cancel, retry, or call the
+exchange.
+
+REST balance responses are exchange-specific. Binance USD-M and Bybit V5 linear
+have adapter helpers for their common account balance responses. If an adapter
+does not expose a helper for the balance endpoint you use, map the response into
+`NormalizedBalance[]` and call `setBalances()`.
+
+## Core Concepts
+
+- `setPositions`, `setOpenOrders`, `setBalances`, and `setFills` write
+  current-state snapshots, usually from REST.
+- `applyPositionUpdate`, `applyOrderUpdate`, `applyBalanceUpdate`, and
+  `applyFill` apply private WebSocket updates.
+- `recordStreamConnected`, `recordStreamReconnected`,
+  `recordStreamDisconnected`, and `recordStreamGap` record private WebSocket
+  stream health; reconnects, disconnects, and gaps add REST-backed state checks.
+- `recordOrderAccepted`, `recordOrderRejected`, `recordOrderStatusUnknown`,
+  `recordOrderCancelled`, and `recordOrderNotFound` record order submission
+  outcomes.
+- `getAccount(scope)` returns the normal app read model: current state,
+  `readyToTrade`, and actionable `stateChecks`.
+
+Method names follow the data flow: `set*` writes a current snapshot, `apply*`
+applies a WebSocket update already received by your app, `record*` records an
+observed fact or outcome, and `get*` reads the store.
+
+`recordOrderAccepted` records a provisional local row. It suppresses duplicate
+submission and is available with `trust: 'includeProvisional'`, but it is not a
+trusted active order in the default read model. REST or private WebSocket
+confirmation converts it into normal open-order state.
+
+If you deliberately use parseable custom order IDs, register a small parser
+once:
+
+```typescript
+state.registerManagedOrderParser({
+  parse(order) {
+    const customId = order.customOrderId ?? order.customTriggerOrderId;
+    return customId ? parseMyManagedOrderId(customId) : undefined;
+  },
+});
+```
+
+For simple in-memory managers, prefer opaque unique exchange-visible custom IDs
+with only an app ownership prefix. Keep deterministic slot state in your own
+runtime registry, such as `customOrderId -> SlotKey`. If that registry is lost
+after restart or recovery, cancel app-owned orders by prefix/scope and rebuild
+from current positions. Parseable custom IDs are an advanced option; only use
+them with durable strategy state and restart tests that cover that path.
+
+## Advanced Usage
+
+Most applications should not need reducer facts or snapshot internals. For
+adapter authors, replay tools, fixture runners, and debugging lower-level state
+transitions:
+
+- `ingest()` accepts adapter/conformance facts.
+- `getAccountView()` returns the detailed reducer view.
+- `getStateChecks()` returns REST-backed state checks without the simplified
+  account read model.
+- `accountstate/core` exports fact and reducer types.
+- `accountstate/conformance` exports generic fixture runners.
+
+```typescript
+import {
+  defaultAccountStateFixtures,
+  runAccountStateFixtures,
+} from 'accountstate/conformance';
+
+const results = runAccountStateFixtures({
+  fixtures: defaultAccountStateFixtures,
+});
+```
+
+Use invariants as a read-only health check in tests, startup checks, or before
+trading logic runs:
+
+```typescript
+const violations = state.checkInvariants(scope);
+if (violations.some((violation) => violation.severity === 'error')) {
+  throw new Error('Account state is not ready for trading decisions');
+}
+```
+
+## Change Sets
+
+Every store write returns a `ChangeSet`. Use it as the synchronous result of
+feeding one REST snapshot, private WebSocket update, replay fact, or submission
+outcome into the reducer.
+
+```typescript
+const change = state.applyPositionUpdate(scope, normalizedPositionUpdate);
+
+if (change.changedSubjects.includes('positions')) {
+  queuePositionWorkflow();
+}
+```
+
+The broad fields tell you which account subjects changed and how many rows were
+added, updated, removed, or marked stale. `entityChanges` contains precise
+entity-level changes from the same reducer call.
+
+For the position workflow and a runnable example, see
+[Position entity events](./docs/entityEvents/positionEntityEvents.md).
+
+## Docs
+
+Start with the [docs guide](./docs/README.md). It separates the main API,
+workflow patterns, exchange adapters, testing notes, and legacy API docs.
+
+For a new integration, read
+[Exchange account store](./docs/core/exchange-account-state-store.md), then the
+adapter page for your exchange:
+[Binance](./docs/adapters/binance.md) or [Bybit](./docs/adapters/bybit.md).
+For order-submitting workflows, add the
+[position manager workflow](./docs/workflows/position-manager.md).
+
+## Legacy Lightweight Store
+
+The original `AccountStateStore` direct-cache API remains available from the
+package root for backwards compatibility. Treat it as deprecated for new
+exchange integrations. It has direct setters/getters for wallet balance,
+positions, orders, leverage, price updates, and per-symbol metadata.
+
+For new REST-plus-WebSocket exchange integrations, prefer
+`ExchangeAccountStateStore`. See
+[Legacy lightweight store](./docs/legacy/account-state-store.md) when
+maintaining an older integration or using the metadata persistence helpers.
 
 ## Running Examples
 
-The repository includes complete working examples for popular exchanges. You can find them in the [./examples](./examples) folder.
+The recommended examples for new exchange integrations use
+`ExchangeAccountStateStore`. The exchange-account API is documented in
+[Exchange account store](./docs/core/exchange-account-state-store.md). For live
+TP/SL/DCA or position-management applications, start with the
+[position manager workflow](./docs/workflows/position-manager.md).
+Adapter docs are available for [Binance](./docs/adapters/binance.md) and
+[Bybit](./docs/adapters/bybit.md). The Binance startup, WebSocket, and reconnect
+workflow is documented in
+[Binance USD-M integration playbook](./docs/adapters/binance-usdm-playbook.md).
 
 ### Binance Futures
 
-1. Create `.env` file:
+1. Set environment variables:
 
-   ```
-   BINANCE_API_KEY=your_api_key
-   BINANCE_API_SECRET=your_api_secret
-   ```
-
-2. Run example:
    ```bash
-   tsx examples/binance-futures-usdm.ts
+   export BINANCE_API_KEY=your_api_key
+   export BINANCE_API_SECRET=your_api_secret
    ```
+
+2. Build and run the example:
+
+   ```bash
+   npm run build
+   npx ts-node --esm examples/binance-usdm-exchange-account-state.ts
+   ```
+
+The older `examples/binance-futures-usdm.ts` file demonstrates the legacy
+`AccountStateStore` API. Use the exchange-account example above for new
+exchange integrations.
 
 ### Bybit Futures
 
@@ -371,18 +407,23 @@ The repository includes complete working examples for popular exchanges. You can
    BYBIT_API_SECRET=your_api_secret
    ```
 
-2. Run example:
+2. Build and run the example:
    ```bash
-   tsx examples/bybit-futures.ts
+   npm run build
+   npx ts-node --esm examples/bybit-v5-linear-exchange-account-state.ts
    ```
 
-All examples demonstrate:
+The older `examples/bybit-futures.ts` file demonstrates the legacy
+`AccountStateStore` API. Use the exchange-account example above for new
+Bybit integrations.
 
-- Initial state synchronization from REST APIs
-- Real-time updates via WebSocket
-- Automatic reconnection handling
-- State consistency maintenance
-- Account summary reporting
+The modern exchange-account examples demonstrate:
+
+- Loading current account state from REST.
+- Applying private WebSocket account events.
+- Recording reconnects and checking stale state through REST.
+- Querying and logging one current account view while the private stream keeps
+  the store up to date.
 
 <!-- template_contributions -->
 
